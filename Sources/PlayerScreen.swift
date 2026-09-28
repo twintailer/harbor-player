@@ -32,6 +32,7 @@ struct PlayerScreen: View {
     @AppStorage("autoSkipIntro") private var autoSkipIntro = false
     @AppStorage("autoSkipRecap") private var autoSkipRecap = false
     @AppStorage("autoSkipOutro") private var autoSkipOutro = false
+    @AppStorage("controlsHideSeconds") private var controlsHideSeconds = 4.0
     private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     enum Panel: String, Identifiable { case speed, anime, audio, subtitles, metadata; var id: String { rawValue } }
 
@@ -83,9 +84,9 @@ struct PlayerScreen: View {
         }
         .onChange(of: style) { _, value in state.controller?.style(value) }
         .onReceive(pulse) { _ in
-            if Date().timeIntervalSince(lastInteraction) > 3.5 {
+            if Date().timeIntervalSince(lastInteraction) > controlsHideSeconds {
                 hud = nil
-                if !state.paused && panel == nil && !scrubbing { controls = false }
+                if !state.paused && !state.buffering && state.duration > 0 && panel == nil && !scrubbing { controls = false }
             }
             if let segment = state.currentSegment, !autoSkipped.contains(segment.id), shouldAutoSkip(segment) { autoSkipped.insert(segment.id); state.seek(segment.end) }
         }
@@ -178,6 +179,7 @@ struct PlayerScreen: View {
                     Toggle("Intro", isOn: $autoSkipIntro); Toggle("Rückblick", isOn: $autoSkipRecap); Toggle("Abspann", isOn: $autoSkipOutro)
                 }
                 Section("Verbindung") {
+                    Stepper("Bedienleiste: \(Int(controlsHideSeconds)) Sekunden", value: $controlsHideSeconds, in: 3...30, step: 1)
                     Button("Mit \(request.url.scheme == "https" ? "HTTP" : "HTTPS") erneut öffnen") {
                         var parts = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
                         parts?.scheme = request.url.scheme == "https" ? "http" : "https"

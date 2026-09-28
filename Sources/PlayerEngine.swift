@@ -55,7 +55,9 @@ final class PlayerController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         let layer = CAMetalLayer()
+        layer.frame = view.bounds
         layer.contentsScale = UIScreen.main.scale
+        layer.drawableSize = CGSize(width: max(1, view.bounds.width * UIScreen.main.scale), height: max(1, view.bounds.height * UIScreen.main.scale))
         layer.framebufferOnly = true
         view.layer.addSublayer(layer); metal = layer
         do {
@@ -64,6 +66,9 @@ final class PlayerController: UIViewController {
         } catch { state?.error = "Audio konnte nicht aktiviert werden: \(error.localizedDescription)" }
         guard let mpv = mpv_create() else { state?.error = "Player konnte nicht gestartet werden."; return }
         handle = mpv
+        #if DEBUG
+        mpv_request_log_messages(mpv, "warn")
+        #endif
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
         let options = ["vo": "gpu-next", "gpu-api": "vulkan", "gpu-context": "moltenvk",
@@ -76,6 +81,7 @@ final class PlayerController: UIViewController {
         mpv_set_option_string(mpv, "sub-fonts-dir", FontStore.directory.path)
         for (key, value) in SubtitleSettings.load().options { mpv_set_option_string(mpv, key, value) }
         let result = mpv_initialize(mpv)
+        diagnostic("initialize=\(result) surface=\(layer.drawableSize)")
         guard result >= 0 else {
             state?.error = "Player-Start fehlgeschlagen: \(String(cString: mpv_error_string(result)))"
             handle = nil; mpv_terminate_destroy(mpv); return
@@ -101,7 +107,12 @@ final class PlayerController: UIViewController {
         let owned = arguments.map { strdup($0) }
         defer { owned.forEach { free($0) } }
         var pointers = owned.map { UnsafePointer($0) }; pointers.append(nil)
-        pointers.withUnsafeMutableBufferPointer { _ = mpv_command(handle, $0.baseAddress) }
+        let result = pointers.withUnsafeMutableBufferPointer { mpv_command(handle, $0.baseAddress) }
+        diagnostic("command \(arguments.first ?? ""): \(result)")
+        if result < 0 {
+            let message = String(cString: mpv_error_string(result))
+            DispatchQueue.main.async { [weak self] in self?.state?.error = "Player-Befehl fehlgeschlagen: \(message)" }
+        }
     }
     func property(_ name: String, _ value: String) {
         queue.async { [weak self] in
@@ -150,6 +161,12 @@ final class PlayerController: UIViewController {
         var error: String?
         for _ in 0..<128 {
             guard let event = mpv_wait_event(handle, 0), event.pointee.event_id != MPV_EVENT_NONE else { break }
+            #if DEBUG
+            if event.pointee.event_id == MPV_EVENT_LOG_MESSAGE, let data = event.pointee.data {
+                let message = data.assumingMemoryBound(to: mpv_event_log_message.self).pointee
+                diagnostic("\(String(cString: message.prefix)): \(String(cString: message.text))")
+            }
+            #endif
             if event.pointee.event_id == MPV_EVENT_FILE_LOADED, let subtitle = request.subtitle {
                 send(["sub-add", subtitle.absoluteString, "select"])
             }
@@ -161,6 +178,7 @@ final class PlayerController: UIViewController {
         let position = number("time-pos"), duration = number("duration")
         let paused = string("pause") == "yes", buffering = string("paused-for-cache") == "yes" || string("idle-active") == "yes"
         tick += 1
+        if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format"))") }
         var tracks: [MPVTrack]?; var chapters: [MediaChapter]?
         if tick % 4 == 0 {
             tracks = (0..<min(200, max(0, Int(number("track-list/count"))))).map { index in
@@ -188,5 +206,13 @@ final class PlayerController: UIViewController {
             if let handle { self.handle = nil; mpv_terminate_destroy(handle) }
             DispatchQueue.main.async { [self] in metal?.removeFromSuperlayer(); metal = nil }
         }
+    }
+    private func diagnostic(_ text: String) {
+        #if DEBUG
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("harbor-mpv.log")
+        let data = Data((text + "\n").utf8)
+        if !FileManager.default.fileExists(atPath: url.path) { try? data.write(to: url) }
+        else if let file = try? FileHandle(forWritingTo: url) { defer { try? file.close() }; _ = try? file.seekToEnd(); try? file.write(contentsOf: data) }
+        #endif
     }
 }
