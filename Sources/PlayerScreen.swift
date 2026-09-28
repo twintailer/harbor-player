@@ -73,6 +73,8 @@ struct PlayerScreen: View {
         .sheet(item: $panel, onDismiss: { touch() }) { selection in
             NavigationStack { panelContent(selection).navigationTitle(panelTitle(selection)).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { panel = nil } } } }
                 .presentationDetents([.medium, .large]).preferredColorScheme(.dark).tint(.mint)
+                .fileImporter(isPresented: $importFont, allowedContentTypes: [.font]) { result in importFontFile(result) }
+                .fileImporter(isPresented: $importSubtitle, allowedContentTypes: [.data]) { result in importSubtitleFile(result) }
         }
         .onAppear {
             originalBrightness = UIScreen.main.brightness
@@ -99,8 +101,6 @@ struct PlayerScreen: View {
             Button("Erneut versuchen") { state.error = nil; restart(request.url) }
             Button("Schließen", role: .cancel) { state.error = nil }
         } message: { Text(state.error ?? "") }
-        .fileImporter(isPresented: $importFont, allowedContentTypes: [.font]) { result in importFontFile(result) }
-        .fileImporter(isPresented: $importSubtitle, allowedContentTypes: [.data]) { result in importSubtitleFile(result) }
     }
 
     private func overlay(wide: Bool) -> some View {

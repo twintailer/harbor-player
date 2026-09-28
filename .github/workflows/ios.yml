@@ -63,11 +63,10 @@ jobs:
         if: always()
         run: |
           if [ -d ui-tests.xcresult ]; then xcrun xcresulttool export attachments --path ui-tests.xcresult --output-path screenshots; fi
-          DEVICE=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((v["udid"] for vs in d["devices"].values() for v in vs if v["state"]=="Booted"),""))')
-          if [ -n "$DEVICE" ]; then
+          for DEVICE in $(xcrun simctl list devices booted -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join(v["udid"] for vs in d["devices"].values() for v in vs if v["state"]=="Booted"))'); do
             CONTAINER=$(xcrun simctl get_app_container "$DEVICE" app.harbor.player data 2>/dev/null || true)
-            if [ -f "$CONTAINER/tmp/harbor-mpv.log" ]; then cp "$CONTAINER/tmp/harbor-mpv.log" .; fi
-          fi
+            if [ -f "$CONTAINER/tmp/harbor-mpv.log" ]; then cp "$CONTAINER/tmp/harbor-mpv.log" "harbor-mpv-$DEVICE.log"; fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,5 +74,5 @@ jobs:
           path: |
             screenshots
             ui-tests.log
-            harbor-mpv.log
+            harbor-mpv-*.log
           retention-days: 7

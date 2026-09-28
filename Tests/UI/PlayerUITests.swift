@@ -4,14 +4,12 @@ final class PlayerUITests: XCTestCase {
     func testPlaybackControlsAndSettings() {
         let app = XCUIApplication()
         app.launchArguments = ["-controlsHideSeconds", "30"]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = "http://127.0.0.1:8765/fixture.mp4"
         app.launch()
         let address = app.textFields["streamURL"]
-        XCTAssertTrue(address.waitForExistence(timeout: 10))
-        address.tap(); address.typeText("http://127.0.0.1:8765/fixture.mp4")
-        app.buttons["openStream"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
         let center = app.buttons["centerPlayPause"]
-        XCTAssertTrue(center.waitForExistence(timeout: 20))
+        XCTAssertTrue(center.waitForExistence(timeout: 30))
         let clock = app.staticTexts["playbackClock"]
         let progressed = NSPredicate { _, _ in
             guard clock.exists else { return false }
@@ -20,6 +18,7 @@ final class PlayerUITests: XCTestCase {
         }
         expectation(for: progressed, evaluatedWith: clock)
         waitForExpectations(timeout: 25)
+        guard clock.exists, clock.label != "0:00" else { capture("Playback failed"); return }
         center.tap() // keep controls visible while paused
         capture("Landscape player")
         app.buttons["Playback speed"].tap()

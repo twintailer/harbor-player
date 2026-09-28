@@ -31,6 +31,11 @@ struct HarborPlayerApp: App {
                 }.frame(maxWidth: .infinity).background(Color(red: 0.035, green: 0.055, blue: 0.075))
             }
             .preferredColorScheme(.dark)
+            .onAppear {
+                #if DEBUG
+                if request == nil, let raw = ProcessInfo.processInfo.environment["HARBOR_TEST_STREAM_URL"], let url = URL(string: raw) { open(url) }
+                #endif
+            }
             .onOpenURL { url in open(url) }
             .fullScreenCover(item: $request, onDismiss: {
                 if let next = pending { pending = nil; request = next }
