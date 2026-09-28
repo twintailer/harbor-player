@@ -7,6 +7,7 @@ struct HarborPlayerApp: App {
     @State private var pending: PlaybackRequest?
     @State private var address = ""
     @State private var error: String?
+    @State private var testLinkConsumed = false
     init() {
         FontStore.prepare()
     }
@@ -33,7 +34,9 @@ struct HarborPlayerApp: App {
             .preferredColorScheme(.dark)
             .onAppear {
                 #if DEBUG
-                if request == nil, let raw = ProcessInfo.processInfo.environment["HARBOR_TEST_STREAM_URL"], let url = URL(string: raw) { open(url) }
+                if !testLinkConsumed, let raw = ProcessInfo.processInfo.environment["HARBOR_TEST_STREAM_URL"], let url = URL(string: raw) {
+                    testLinkConsumed = true; open(url)
+                }
                 #endif
             }
             .onOpenURL { url in open(url) }
