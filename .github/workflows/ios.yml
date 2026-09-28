@@ -53,6 +53,7 @@ jobs:
           path: build.log
           retention-days: 3
       - name: Playback and interface tests on iPhone Simulator
+        timeout-minutes: 15
         run: |
           set -o pipefail
           mkdir -p /tmp/harbor-fixtures

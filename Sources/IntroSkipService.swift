@@ -122,7 +122,9 @@ enum IntroSkipService {
               let entries = try? JSONDecoder().decode([ARMEntry].self, from: data) else { return nil }
         let ids = entries.compactMap(\.myanimelist)
         guard !ids.isEmpty else { return nil }
-        return ids.indices.contains(max(0, season - 1)) ? ids[max(0, season - 1)] : ids[0]
+        // ARM result order is not a season contract. Ambiguous mappings require
+        // the explicit MAL season ID, rather than risking skipping story content.
+        return ids.count == 1 ? ids[0] : nil
     }
 
     // MARK: - TheIntroDB

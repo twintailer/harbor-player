@@ -39,6 +39,7 @@ targets:
         CFBundleVersion: "1"
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

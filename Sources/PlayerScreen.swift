@@ -83,7 +83,10 @@ struct PlayerScreen: View {
         }
         .onChange(of: style) { _, value in state.controller?.style(value) }
         .onReceive(pulse) { _ in
-            if Date().timeIntervalSince(lastInteraction) > 3.5 && !state.paused && panel == nil && !scrubbing { controls = false; hud = nil }
+            if Date().timeIntervalSince(lastInteraction) > 3.5 {
+                hud = nil
+                if !state.paused && panel == nil && !scrubbing { controls = false }
+            }
             if let segment = state.currentSegment, !autoSkipped.contains(segment.id), shouldAutoSkip(segment) { autoSkipped.insert(segment.id); state.seek(segment.end) }
         }
         .task(id: lookupKey) { await lookup() }
