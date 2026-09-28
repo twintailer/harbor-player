@@ -8,10 +8,7 @@ struct HarborPlayerApp: App {
     @State private var address = ""
     @State private var error: String?
     init() {
-        if let folder = Bundle.main.url(forResource: "Fonts", withExtension: nil),
-           let urls = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
-            for url in urls where ["ttf", "otf"].contains(url.pathExtension) { CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) }
-        }
+        FontStore.prepare()
     }
     var body: some Scene {
         WindowGroup {
@@ -25,7 +22,7 @@ struct HarborPlayerApp: App {
                         Button { openText() } label: { Label("Stream abspielen", systemImage: "play.fill").frame(maxWidth: .infinity).padding(8) }.buttonStyle(.borderedProminent).tint(.mint).accessibilityIdentifier("openStream")
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Mit Stremio verbinden", systemImage: "link").font(.headline)
-                            Text("In Stremio Web unter Einstellungen → Player → Externer Player „Outplayer“ auswählen. Harbor nimmt dessen Links entgegen. Outplayer selbst sollte dafür nicht installiert sein, da iOS bei gleichen URL-Schemas die Ziel-App nicht zuverlässig auswählt.")
+                            Text("In Stremio Web unter Einstellungen → Player → Externer Player „VLC“ auswählen. Harbor nimmt dessen Links entgegen. VLC selbst sollte dafür nicht installiert sein, da iOS bei gleichen URL-Schemas die Ziel-App nicht zuverlässig auswählt. Alternativ funktioniert „Outplayer“, wenn Outplayer nicht installiert ist.")
                             Text("Falls ein HTTP-Stream als HTTPS geöffnet wird: im Player-Menü auf HTTP wechseln. Alternativ die originale Stream-URL hier einfügen.")
                             Text("Intro-Erkennung benötigt Kapitel oder eine Medien-ID und Episode. Diese kannst du während der Wiedergabe im Info-Menü ergänzen.")
                         }.font(.subheadline).foregroundStyle(.secondary)

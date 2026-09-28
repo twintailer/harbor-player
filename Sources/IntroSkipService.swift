@@ -37,7 +37,7 @@ enum IntroSkipService {
                          duration: Double, isAnime: Bool,
                          chapters: [MediaChapter]) async -> [SkipSegment] {
         guard duration.isFinite, duration > 0, duration < Double(Int.max) / 1000 else { return [] }
-        let key = "\(contentID):\(season ?? 0):\(episode ?? 0):\(Int(duration))"
+        let key = "\(contentID):\(season ?? 0):\(episode ?? 0):\(Int(duration)):\(isAnime)"
         if let cached = resultCache[key] {
             return merge([cached, chapterSegments(chapters, duration: duration)], duration: duration)
         }
@@ -48,7 +48,8 @@ enum IntroSkipService {
                                          episode: episode, duration: duration,
                                          enabled: isAnime)
         let network = merge([await aniSkip, await introDB], duration: duration)
-        resultCache[key] = network
+        // Allow a later user-triggered retry after transient network failures.
+        if !network.isEmpty { resultCache[key] = network }
         return merge([network, chapterSegments(chapters, duration: duration)], duration: duration)
     }
 
@@ -166,17 +167,17 @@ enum IntroSkipService {
 
     // MARK: - Chapters / merge
 
-    private static func chapterSegments(_ chapters: [MediaChapter], duration: Double) -> [SkipSegment] {
+    static func chapterSegments(_ chapters: [MediaChapter], duration: Double) -> [SkipSegment] {
         chapters.compactMap { chapter in
             let title = chapter.title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             let kind: SkipSegment.Kind?
             if ["op", "ncop", "opening", "intro"].contains(title)
                 || ["intro", "opening", "theme song"].contains(where: { title.contains($0) }) {
                 kind = .intro
-            } else if ["recap", "previously", "cold open", "prologue", "avant", "teaser"].contains(where: { title.contains($0) }) {
+            } else if ["recap", "previously", "rückblick"].contains(where: { title.contains($0) }) {
                 kind = .recap
             } else if chapter.start > duration * 0.5
-                        && (["ed", "ending", "outro", "credit", "closing"].contains(where: { title.contains($0) })) {
+                        && (title == "ed" || title == "nced" || ["ending", "outro", "credit", "closing", "abspann"].contains(where: { title.contains($0) })) {
                 kind = .outro
             } else {
                 kind = nil
@@ -186,7 +187,7 @@ enum IntroSkipService {
         }
     }
 
-    private static func merge(_ lists: [[SkipSegment]], duration: Double) -> [SkipSegment] {
+    static func merge(_ lists: [[SkipSegment]], duration: Double) -> [SkipSegment] {
         var merged: [SkipSegment] = []
         for segment in lists.flatMap({ $0 }).sorted(by: { $0.start < $1.start }) {
             guard segment.start.isFinite, segment.end.isFinite else { continue }

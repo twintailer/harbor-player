@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test URL parsing and subtitle settings
         run: |
-          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/SubtitleSettings.swift Tests/LogicTests.swift -o /tmp/logic-tests
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/SubtitleSettings.swift Sources/PlaybackTypes.swift Sources/IntroSkipService.swift Tests/LogicTests.swift -o /tmp/logic-tests
           /tmp/logic-tests
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -52,3 +52,23 @@ jobs:
           name: build-log
           path: build.log
           retention-days: 3
+      - name: Playback and interface tests on iPhone Simulator
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/harbor-fixtures
+          swift scripts/make-fixture.swift /tmp/harbor-fixtures/fixture.mp4
+          python3 -m http.server 8765 --directory /tmp/harbor-fixtures >/tmp/fixture-server.log 2>&1 &
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build-simulator -clonedSourcePackagesDirPath spm -resultBundlePath ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log | tail -70
+      - name: Export UI screenshots
+        if: always()
+        run: |
+          if [ -d ui-tests.xcresult ]; then xcrun xcresulttool export attachments --path ui-tests.xcresult --output-path screenshots; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iPhone-UI-tests
+          path: |
+            screenshots
+            ui-tests.log
+          retention-days: 7

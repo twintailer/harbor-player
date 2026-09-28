@@ -6,7 +6,7 @@ Native SwiftUI/libmpv external player for Stremio, iOS 17+. Built-in Anime4K GPU
 
 The Actions artifact contains an **unsigned IPA**. Sign with your own Apple ID using your sideloading setup before installing. This repository does not contain Apple certificates or provisioning profiles.
 
-In **Stremio Web → Settings → Player → external player**, select **Outplayer**. This app registers `outplayer://` as a compatibility bridge. Do not keep the original Outplayer installed at the same time: iOS does not reliably select between apps registering the same scheme. This is a compatibility bridge, not an official Stremio integration.
+In **Stremio Web → Settings → Player → external player**, select **VLC**. This app registers `vlc-x-callback://` as a compatibility bridge, preserving HTTP/HTTPS and query parameters. Do not keep the original VLC installed at the same time: iOS does not reliably select between apps registering the same scheme. Alternatively select **Outplayer**, without the original Outplayer installed. This is a compatibility bridge, not an official Stremio integration.
 
 Stremio replaces the original HTTP/HTTPS scheme with `outplayer`. Harbor defaults to HTTPS. For HTTP-only local servers, use the player's Info → connection switch or paste the original HTTP URL on the home screen. No silent downgrade of authenticated HTTPS streams is performed.
 

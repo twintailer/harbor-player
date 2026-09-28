@@ -73,9 +73,7 @@ final class PlayerController: UIViewController {
                        "network-timeout": "30", "subs-match-os-language": "yes",
                        "subs-fallback": "yes", "start": String(request.start)]
         for (key, value) in options { mpv_set_option_string(mpv, key, value) }
-        if let fontDirectory = Bundle.main.url(forResource: "Fonts", withExtension: nil) {
-            mpv_set_option_string(mpv, "sub-fonts-dir", fontDirectory.path)
-        }
+        mpv_set_option_string(mpv, "sub-fonts-dir", FontStore.directory.path)
         for (key, value) in SubtitleSettings.load().options { mpv_set_option_string(mpv, key, value) }
         let result = mpv_initialize(mpv)
         guard result >= 0 else {

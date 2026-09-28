@@ -110,7 +110,7 @@ struct PlayerScreen: View {
                 Spacer()
                 VStack(spacing: 6) {
                     Slider(value: Binding(get: { scrubbing ? scrub : min(state.position, max(1, state.duration)) }, set: { scrub = $0 }), in: 0...max(1, state.duration), onEditingChanged: { editing in scrubbing = editing; if !editing { state.seek(scrub) }; touch() }).tint(.mint).disabled(state.duration <= 0).accessibilityLabel("Wiedergabeposition")
-                    HStack { Text(timestamp(scrubbing ? scrub : state.position)); Spacer(); Text(timestamp(state.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    HStack { Text(timestamp(scrubbing ? scrub : state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text(timestamp(state.duration)) }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     if wide { HStack { transport; Spacer(); options } }
                     else { VStack(spacing: 2) { HStack { transport; Spacer() }; HStack { Spacer(); options } } }
                 }
@@ -201,6 +201,7 @@ struct PlayerScreen: View {
     private var lookupKey: String { "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)" }
     private func lookup() async {
         guard state.duration > 0 else { return }
+        state.segments = IntroSkipService.merge([IntroSkipService.chapterSegments(state.chapters, duration: state.duration)], duration: state.duration)
         state.skipStatus = "Suche in AniSkip, TheIntroDB und Kapiteln …"
         let values = await IntroSkipService.segments(contentID: contentID, season: Int(season), episode: Int(episode), duration: state.duration, isAnime: anime, chapters: state.chapters)
         guard !Task.isCancelled else { return }
@@ -222,7 +223,7 @@ struct PlayerScreen: View {
             let source = try result.get(); let access = source.startAccessingSecurityScopedResource(); defer { if access { source.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: source)
             guard data.count < 30_000_000, let provider = CGDataProvider(data: data as CFData), let font = CGFont(provider), let name = font.postScriptName else { throw PlaybackRequest.RequestError.invalidURL }
-            let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fonts")
+            let folder = FontStore.directory
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let destination = folder.appendingPathComponent(source.lastPathComponent)
             try data.write(to: destination, options: .atomic)

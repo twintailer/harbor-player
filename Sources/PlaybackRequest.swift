@@ -23,7 +23,7 @@ struct PlaybackRequest: Identifiable, Equatable {
             let translated = tail.hasPrefix("http") ? tail : "https:" + tail
             if let url = URL(string: translated) { return try parse(url) }
         }
-        guard ["harborplayer", "outplayer"].contains(scheme),
+        guard ["harborplayer", "outplayer", "vlc-x-callback"].contains(scheme),
               let parts = URLComponents(url: input, resolvingAgainstBaseURL: false),
               let raw = parts.queryItems?.first(where: { $0.name == "url" })?.value,
               let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),

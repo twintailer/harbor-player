@@ -45,9 +45,22 @@ targets:
         NSLocalNetworkUsageDescription: Streams von deinem Stremio-Server im lokalen Netzwerk abspielen.
         CFBundleURLTypes:
           - CFBundleURLName: app.harbor.player
-            CFBundleURLSchemes: [harborplayer, outplayer]
+            CFBundleURLSchemes: [harborplayer, outplayer, vlc-x-callback]
+  HarborPlayerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: Tests/UI
+    dependencies:
+      - target: HarborPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.harbor.player.uitests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   HarborPlayer:
     build:
       targets:
         HarborPlayer: all
+    test:
+      targets:
+        - HarborPlayerUITests
