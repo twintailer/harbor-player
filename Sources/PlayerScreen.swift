@@ -29,6 +29,8 @@ struct PlayerScreen: View {
     @State private var externalSubtitle = ""
     @State private var importFont = false
     @State private var importSubtitle = false
+    @State private var closing = false
+    @State private var pendingExternalClose = false
     @AppStorage("autoSkipIntro") private var autoSkipIntro = false
     @AppStorage("autoSkipRecap") private var autoSkipRecap = false
     @AppStorage("autoSkipOutro") private var autoSkipOutro = false
@@ -59,6 +61,7 @@ struct PlayerScreen: View {
                     }.onEnded { _ in gestureStart = nil; touch() })
                 SystemVolumeView(volume: volume).frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
                 if state.buffering && state.error == nil { ProgressView().tint(.mint).scaleEffect(1.5).allowsHitTesting(false) }
+                if closing { ProgressView("Schließen …").padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)) }
                 if controls { overlay(wide: geometry.size.width > 600) }
                 if let hud { Text(hud).font(.headline.monospacedDigit()).padding().background(.ultraThinMaterial, in: Capsule()).frame(maxHeight: .infinity, alignment: .top).padding(.top, 70).allowsHitTesting(false) }
                 if let segment = state.currentSegment {
@@ -79,6 +82,7 @@ struct PlayerScreen: View {
         .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false; if let originalBrightness { UIScreen.main.brightness = originalBrightness } }
         .onChange(of: scenePhase) { _, value in if value != .active { state.controller?.property("pause", "yes") } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in state.controller?.property("pause", "yes") }
+        .onReceive(NotificationCenter.default.publisher(for: .harborReplacePlayback)) { _ in pendingExternalClose = true; closePlayer() }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
             if (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { state.controller?.property("pause", "yes") }
         }
@@ -105,7 +109,7 @@ struct PlayerScreen: View {
             Button { state.toggle(); touch() } label: { Image(systemName: state.paused ? "play.fill" : "pause.fill").font(.system(size: 38, weight: .semibold)).frame(width: 84, height: 84).background(.ultraThinMaterial, in: Circle()) }.accessibilityLabel(state.paused ? "Wiedergabe" : "Pause").accessibilityIdentifier("centerPlayPause")
             VStack {
                 HStack {
-                    icon("chevron.down", "Player schließen") { dismiss() }
+                    icon("chevron.down", "Player schließen") { closePlayer() }
                     Text(request.title.isEmpty ? "Harbor Player" : request.title).font(.headline).lineLimit(1)
                     Spacer()
                     if state.animeActive { Text("Anime4K").font(.caption.bold()).foregroundStyle(.mint) }
@@ -219,9 +223,18 @@ struct PlayerScreen: View {
     private func panelTitle(_ panel: Panel) -> String { switch panel { case .speed: return "Playback speed"; case .anime: return "Anime4K"; case .audio: return "Audio language"; case .subtitles: return "Untertitel"; case .metadata: return "Medien & Skip Intro" } }
     private func animeLabel(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
     private func restart(_ url: URL) {
-        state.controller?.shutdown()
-        request = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: anime, start: state.position, subtitle: request.subtitle)
-        state.buffering = true; state.segments = []; state.animeActive = false; preset = "off"; state.speed = 1; autoSkipped = []
+        guard !closing else { return }; closing = true
+        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: anime, start: state.position, subtitle: request.subtitle)
+        let replace = {
+            if pendingExternalClose { dismiss(); return }
+            request = replacement
+            state.buffering = true; state.segments = []; state.animeActive = false; preset = "off"; state.speed = 1; autoSkipped = []; closing = false
+        }
+        if let controller = state.controller { controller.shutdown(completion: replace) } else { replace() }
+    }
+    private func closePlayer() {
+        guard !closing else { return }; closing = true
+        if let controller = state.controller { controller.shutdown { dismiss() } } else { dismiss() }
     }
     private func importFontFile(_ result: Result<URL, Error>) {
         do {

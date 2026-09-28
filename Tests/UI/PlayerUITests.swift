@@ -28,7 +28,7 @@ final class PlayerUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label CONTAINS 'Modus A · Balanced'")).firstMatch.tap()
         app.buttons["Fertig"].tap()
         app.buttons["Subtitle language und Stil"].tap()
-        XCTAssertTrue(app.staticTexts["Sprache"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Untertitel ausschalten"].waitForExistence(timeout: 5))
         capture("Subtitle settings")
         app.buttons["Fertig"].tap()
         XCUIDevice.shared.orientation = .portrait

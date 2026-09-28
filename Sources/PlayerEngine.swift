@@ -45,6 +45,8 @@ final class PlayerController: UIViewController {
     private var metal: CAMetalLayer?
     private var timer: DispatchSourceTimer?
     private var stopping = false
+    private var shutdownFinished = false
+    private var shutdownCallbacks: [() -> Void] = []
     private var tick = 0
     init(request: PlaybackRequest, state: PlayerState) {
         self.request = request; self.state = state
@@ -54,7 +56,7 @@ final class PlayerController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        let layer = CAMetalLayer()
+        let layer = VideoMetalLayer()
         layer.frame = view.bounds
         layer.contentsScale = UIScreen.main.scale
         layer.drawableSize = CGSize(width: max(1, view.bounds.width * UIScreen.main.scale), height: max(1, view.bounds.height * UIScreen.main.scale))
@@ -72,7 +74,8 @@ final class PlayerController: UIViewController {
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
         let options = ["vo": "gpu-next", "gpu-api": "vulkan", "gpu-context": "moltenvk",
-                       "hwdec": "videotoolbox", "ao": "audiounit", "profile": "fast",
+                       "hwdec": "videotoolbox-copy", "ao": "audiounit", "profile": "fast",
+                       "vulkan-swap-mode": "fifo", "vd-lavc-threads": "4",
                        "keep-open": "yes", "idle": "yes", "cache": "yes",
                        "demuxer-max-bytes": "96MiB", "demuxer-max-back-bytes": "12MiB",
                        "network-timeout": "30", "subs-match-os-language": "yes",
@@ -94,9 +97,12 @@ final class PlayerController: UIViewController {
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard !stopping, view.bounds.width > 0, view.bounds.height > 0 else { return }
+        let size = CGSize(width: view.bounds.width * UIScreen.main.scale, height: view.bounds.height * UIScreen.main.scale)
+        guard metal?.drawableSize != size || metal?.frame != view.bounds else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         metal?.frame = view.bounds
-        metal?.drawableSize = CGSize(width: view.bounds.width * UIScreen.main.scale, height: view.bounds.height * UIScreen.main.scale)
+        metal?.drawableSize = size
         CATransaction.commit()
     }
     func command(_ arguments: [String]) {
@@ -198,13 +204,21 @@ final class PlayerController: UIViewController {
             if let error { state.error = error }
         }
     }
-    func shutdown() {
+    func shutdown(completion: @escaping () -> Void = {}) {
+        if shutdownFinished { completion(); return }
+        shutdownCallbacks.append(completion)
         guard !stopping else { return }; stopping = true
         timer?.cancel(); timer = nil
         state?.controller = nil
         queue.async { [self] in
             if let handle { self.handle = nil; mpv_terminate_destroy(handle) }
-            DispatchQueue.main.async { [self] in metal?.removeFromSuperlayer(); metal = nil }
+            DispatchQueue.main.async { [self] in
+                metal?.removeFromSuperlayer(); metal = nil
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                shutdownFinished = true
+                let callbacks = shutdownCallbacks; shutdownCallbacks = []
+                callbacks.forEach { $0() }
+            }
         }
     }
     private func diagnostic(_ text: String) {
@@ -214,5 +228,14 @@ final class PlayerController: UIViewController {
         if !FileManager.default.fileExists(atPath: url.path) { try? data.write(to: url) }
         else if let file = try? FileHandle(forWritingTo: url) { defer { try? file.close() }; _ = try? file.seekToEnd(); try? file.write(contentsOf: data) }
         #endif
+    }
+}
+
+private final class VideoMetalLayer: CAMetalLayer {
+    // MoltenVK may request a 1x1 drawable during presentation. Preserve the
+    // valid viewport, matching the existing Harbor iOS renderer workaround.
+    override var drawableSize: CGSize {
+        get { super.drawableSize }
+        set { if newValue.width > 1 && newValue.height > 1 { super.drawableSize = newValue } }
     }
 }

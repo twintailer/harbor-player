@@ -47,7 +47,14 @@ struct HarborPlayerApp: App {
     private func open(_ url: URL) {
         do {
             let next = try PlaybackRequest.parse(url)
-            if request != nil { pending = next; request = nil } else { request = next }
+            if request != nil {
+                pending = next
+                NotificationCenter.default.post(name: .harborReplacePlayback, object: nil)
+            } else { request = next }
         } catch { self.error = error.localizedDescription }
     }
+}
+
+extension Notification.Name {
+    static let harborReplacePlayback = Notification.Name("harborReplacePlayback")
 }
