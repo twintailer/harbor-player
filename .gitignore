@@ -1,0 +1,7 @@
+build*/
+spm/
+*.xcodeproj/
+Info.plist
+artifacts/
+*.ipa
+.DS_Store

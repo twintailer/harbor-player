@@ -1,0 +1,54 @@
+name: Build iPhone IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.event.repository.private == false
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test URL parsing and subtitle settings
+        run: |
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/SubtitleSettings.swift Tests/LogicTests.swift -o /tmp/logic-tests
+          /tmp/logic-tests
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Resolve packages
+        run: |
+          for attempt in 1 2 3; do
+            if xcodebuild -resolvePackageDependencies -project HarborPlayer.xcodeproj -scheme HarborPlayer -clonedSourcePackagesDirPath spm; then exit 0; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+          done
+      - name: Build unsigned iPhone application
+        run: |
+          set -o pipefail
+          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build -clonedSourcePackagesDirPath spm CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build 2>&1 | tee build.log | tail -80
+      - name: Package and verify IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/HarborPlayer.app Payload/
+          test -f Payload/HarborPlayer.app/Anime4K/Anime4K_Upscale_DTD_x2.glsl
+          test -f Payload/HarborPlayer.app/Fonts/Inter.ttf
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' Payload/HarborPlayer.app/Info.plist
+          zip -qr HarborPlayer_1.0.0_unsigned.ipa Payload
+          shasum -a 256 HarborPlayer_1.0.0_unsigned.ipa > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HarborPlayer-iPhone-unsigned
+          path: |
+            HarborPlayer_1.0.0_unsigned.ipa
+            SHA256SUMS
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 3

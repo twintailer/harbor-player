@@ -1,0 +1,53 @@
+name: HarborPlayer
+options:
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: 1.0.0
+targets:
+  HarborPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: Resources/Anime4K
+        type: folder
+        buildPhase: resources
+      - path: Resources/Fonts
+        type: folder
+        buildPhase: resources
+      - path: Assets.xcassets
+    dependencies:
+      - package: MPVKit
+        product: MPVKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.harbor.player
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Harbor Player
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Streams von deinem Stremio-Server im lokalen Netzwerk abspielen.
+        CFBundleURLTypes:
+          - CFBundleURLName: app.harbor.player
+            CFBundleURLSchemes: [harborplayer, outplayer]
+schemes:
+  HarborPlayer:
+    build:
+      targets:
+        HarborPlayer: all
