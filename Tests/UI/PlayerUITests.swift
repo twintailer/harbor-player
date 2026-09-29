@@ -53,10 +53,35 @@ final class PlayerUITests: XCTestCase {
         waitUntil("Explicit subtitle override is retained") { full.value as? String == "unselected" && forced.value as? String == "unselected" }
         app.buttons["Fertig"].tap()
         app.buttons["Playback speed"].tap()
+        capture("Liquid Glass playback speed")
+        reveal(app.buttons["1.5×"], in: app)
         app.buttons["1.5×"].tap()
         app.buttons["Anime4K"].tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS 'Modus A · Balanced'")).firstMatch.tap()
         app.buttons["Fertig"].tap()
+        app.buttons["Einstellungen"].tap()
+        capture("Liquid Glass settings overview")
+        reveal(app.buttons["openLanguagePreferences"], in: app)
+        app.buttons["openLanguagePreferences"].tap()
+        XCTAssertTrue(app.switches["Forced bevorzugen"].waitForExistence(timeout: 5))
+        capture("Preferred languages and controls")
+        app.buttons["Fertig"].tap()
+        app.buttons["Subtitle language und Stil"].tap()
+        reveal(app.buttons["openSubtitleStyle"], in: app)
+        app.buttons["openSubtitleStyle"].tap()
+        XCTAssertTrue(app.staticTexts["So sehen deine Untertitel aus"].waitForExistence(timeout: 5))
+        capture("Subtitle appearance settings")
+        app.buttons["Fertig"].tap()
+        // Tapping outside a floating menu dismisses it without pausing/seeking.
+        app.buttons["Einstellungen"].tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)).tap()
+        XCTAssertTrue(center.isHittable)
+        // The new narrow timeline still supports direct seeking.
+        let timeline = app.otherElements["Wiedergabeposition"]
+        XCTAssertTrue(timeline.exists)
+        timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)).tap()
+        waitUntil("Timeline seeks to 60 percent") { abs(self.seconds(clock) - 36) <= 1 }
+        capture("Liquid Glass final player")
         let finalPosition = seconds(clock)
         app.buttons["Player schließen"].tap()
         XCTAssertTrue(app.textFields["streamURL"].waitForExistence(timeout: 15))
@@ -75,6 +100,13 @@ final class PlayerUITests: XCTestCase {
         guard clock.exists else { return -1 }
         let parts = clock.label.split(separator: ":").compactMap { Int($0) }
         return parts.count == 2 ? parts[0] * 60 + parts[1] : -1
+    }
+    private func reveal(_ button: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<4 {
+            if button.isHittable { return }
+            app.scrollViews["playerPanelScroll"].swipeUp()
+        }
+        XCTAssertTrue(button.isHittable)
     }
     private func waitUntil(_ description: String, timeout: TimeInterval = 25, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)

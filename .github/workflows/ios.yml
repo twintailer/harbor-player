@@ -37,13 +37,13 @@ jobs:
           test -f Payload/HarborPlayer.app/Anime4K/Anime4K_Upscale_DTD_x2.glsl
           test -f Payload/HarborPlayer.app/Fonts/Inter.ttf
           /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' Payload/HarborPlayer.app/Info.plist
-          zip -qr HarborPlayer_1.1.0_unsigned.ipa Payload
-          shasum -a 256 HarborPlayer_1.1.0_unsigned.ipa > SHA256SUMS
+          zip -qr HarborPlayer_1.2.0_unsigned.ipa Payload
+          shasum -a 256 HarborPlayer_1.2.0_unsigned.ipa > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: HarborPlayer-iPhone-unsigned
           path: |
-            HarborPlayer_1.1.0_unsigned.ipa
+            HarborPlayer_1.2.0_unsigned.ipa
             SHA256SUMS
           retention-days: 7
       - uses: actions/upload-artifact@v4

@@ -16,11 +16,13 @@ Direct integration: `harborplayer://play?url=<percent-encoded-HTTP(S)-URL>&title
 
 ## Controls
 
+Version 1.2 uses native **Liquid Glass on iOS 26+**, with a material fallback on iOS 17–18 and an opaque variant when Reduce Transparency is enabled. No downloaded UI assets or additional rendering library are needed. Floating controls, a thin seek timeline, a top-right volume slider and a right-hand settings panel keep the video visible. Quick audio/subtitle choices are separate from the full subtitle appearance/import editor and language/gesture preferences. Reduce Motion is respected.
+
 - Tap video: show/hide controls and large central play/pause.
 - Playback automatically opens in landscape; closing returns home to portrait.
 - Double-tap left/right: seek backward/forward, preserving playback/pause state.
 - Bottom left: back, play/pause, forward. Default seek interval: 15 seconds; configurable to 5/10/15/30/60 seconds in Languages & Controls.
-- Bottom right: speed, Anime4K, audio language, subtitle language and style.
+- Bottom right: speed, Anime4K, audio language, subtitles, and a settings overview. Extended editors are reachable from the respective glass menu; tap outside a menu or its close button to dismiss it.
 - Swipe vertically on left/right: screen brightness/system volume.
 - Info: content identity, episode, skip lookup, independent intro/recap/credits auto-skip.
 
