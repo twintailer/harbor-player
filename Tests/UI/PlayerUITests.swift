@@ -53,6 +53,7 @@ final class PlayerUITests: XCTestCase {
         waitUntil("Explicit subtitle override is retained") { full.value as? String == "unselected" && forced.value as? String == "unselected" }
         app.buttons["Fertig"].tap()
         app.buttons["Playback speed"].tap()
+        XCTAssertTrue(app.buttons["Fertig"].waitForExistence(timeout: 5), "The entire tempo button must open its menu")
         capture("Liquid Glass playback speed")
         reveal(app.buttons["1.5×"], in: app)
         app.buttons["1.5×"].tap()

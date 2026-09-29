@@ -194,7 +194,7 @@ struct PlayerScreen: View {
     }
     private var options: some View {
         HStack(spacing: 4) {
-            Button { openPanel(.speed) } label: { Text(String(format: "%g×", state.speed)).font(.system(size: 16, weight: .semibold)).frame(width: 44, height: 44) }.accessibilityLabel("Playback speed")
+            Button { openPanel(.speed) } label: { Text(String(format: "%g×", state.speed)).font(.system(size: 16, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Playback speed")
             icon("sparkles.tv", "Anime4K") { openPanel(.anime) }
             icon("waveform", "Audio language") { openPanel(.audio) }
             icon("captions.bubble", "Subtitle language und Stil") { openPanel(.subtitles) }

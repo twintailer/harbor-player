@@ -50,12 +50,12 @@ struct PlayerGlassPanel<Content: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 if let back {
-                    Button(action: back) { Image(systemName: "chevron.left").frame(width: 36, height: 44) }.accessibilityLabel("Zurück zu Einstellungen")
+                    Button(action: back) { Image(systemName: "chevron.left").frame(width: 36, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Zurück zu Einstellungen")
                 } else {
                     Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 24)
                 }
                 Text(title).font(.headline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).frame(width: 44, height: 44) }.accessibilityLabel("Fertig")
+                Button(action: close) { Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Fertig")
             }.padding(.horizontal, 16).padding(.vertical, 6)
             Divider().overlay(.white.opacity(0.08)).padding(.horizontal, 18)
             ScrollView {

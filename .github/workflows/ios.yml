@@ -20,6 +20,11 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate
+      - name: Prepare iPhone Simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          echo "HARBOR_SIMULATOR_UDID=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
       - name: Resolve packages
         run: |
           for attempt in 1 2 3; do
@@ -58,8 +63,8 @@ jobs:
           set -o pipefail
           python3 Tests/fixture_server.py --self-test
           python3 Tests/fixture_server.py >/tmp/fixture-server.log 2>&1 &
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
-          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build-simulator -clonedSourcePackagesDirPath spm -resultBundlePath ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log | tail -70
+          xcrun simctl bootstatus "$HARBOR_SIMULATOR_UDID" -b
+          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -destination "platform=iOS Simulator,id=$HARBOR_SIMULATOR_UDID" -derivedDataPath build-simulator -clonedSourcePackagesDirPath spm -resultBundlePath ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log | tail -70
       - name: Export UI screenshots
         if: always()
         run: |
