@@ -48,11 +48,20 @@ final class PlayerController: UIViewController {
     private var shutdownFinished = false
     private var shutdownCallbacks: [() -> Void] = []
     private var tick = 0
+    private var loaded = false // queue-owned; failed opens must not reset Stremio progress
+    private var preferences = TrackPreferences.load()
+    private var manualAudio = false
+    private var manualSubtitles = false
     init(request: PlaybackRequest, state: PlayerState) {
         self.request = request; self.state = state
+        self.manualSubtitles = request.subtitle != nil
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        PlaybackOrientation.setPlaying(true, in: view.window?.windowScene)
+    }
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
@@ -73,8 +82,9 @@ final class PlayerController: UIViewController {
         #endif
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
+        mpv_set_option_string(mpv, "profile", "fast")
         let options = ["vo": "gpu-next", "gpu-api": "vulkan", "gpu-context": "moltenvk",
-                       "hwdec": "videotoolbox-copy", "ao": "audiounit", "profile": "fast",
+                       "hwdec": "videotoolbox-copy", "ao": "audiounit",
                        "vulkan-swap-mode": "fifo", "vd-lavc-threads": "4",
                        "keep-open": "yes", "idle": "yes", "cache": "yes",
                        "demuxer-max-bytes": "96MiB", "demuxer-max-back-bytes": "12MiB",
@@ -130,6 +140,44 @@ final class PlayerController: UIViewController {
         style.save()
         for (key, value) in style.options { property(key, value) }
     }
+    func selectTrack(_ type: String, id: Int) {
+        queue.async { [weak self] in
+            guard let self, let handle = self.handle else { return }
+            if type == "audio" { self.manualAudio = true } else { self.manualSubtitles = true }
+            mpv_set_property_string(handle, type == "audio" ? "aid" : "sid", id < 0 ? "no" : String(id))
+        }
+    }
+    func addSubtitle(_ path: String) {
+        queue.async { [weak self] in self?.manualSubtitles = true; self?.send(["sub-add", path, "select"]) }
+    }
+    func applyLanguagePreferences() {
+        let value = TrackPreferences.load()
+        queue.async { [weak self] in self?.preferences = value; self?.manualAudio = false; self?.manualSubtitles = false }
+    }
+    private func autoSelect(_ tracks: [MPVTrack]) {
+        guard let handle else { return }
+        var audio = tracks.first { $0.type == "audio" && $0.selected }
+        if !manualAudio, let preferred = preferences.preferredAudio(in: tracks), preferred.id != audio?.id {
+            if mpv_set_property_string(handle, "aid", String(preferred.id)) >= 0 { audio = preferred }
+        }
+        if !manualSubtitles {
+            let desired = preferences.preferredSubtitle(in: tracks, actualAudio: audio)
+            let selected = tracks.first { $0.type == "sub" && $0.selected }?.id ?? -1
+            if desired != selected { mpv_set_property_string(handle, "sid", desired < 0 ? "no" : String(desired)) }
+        }
+    }
+    func finishPlayback(_ completion: @escaping (Double, Bool) -> Void) {
+        queue.async { [self] in
+            var position = 0.0
+            let valid: Bool
+            if let handle {
+                mpv_set_property_string(handle, "pause", "yes")
+                valid = loaded && mpv_get_property(handle, "time-pos", MPV_FORMAT_DOUBLE, &position) >= 0 && position.isFinite && position >= 0
+            } else { valid = false }
+            let snapshot = position
+            DispatchQueue.main.async { [self] in shutdown { completion(snapshot, valid) } }
+        }
+    }
     func anime(_ preset: String) {
         let names: [String]
         switch preset {
@@ -173,8 +221,9 @@ final class PlayerController: UIViewController {
                 diagnostic("\(String(cString: message.prefix)): \(String(cString: message.text))")
             }
             #endif
-            if event.pointee.event_id == MPV_EVENT_FILE_LOADED, let subtitle = request.subtitle {
-                send(["sub-add", subtitle.absoluteString, "select"])
+            if event.pointee.event_id == MPV_EVENT_FILE_LOADED {
+                loaded = true
+                if let subtitle = request.subtitle { send(["sub-add", subtitle.absoluteString, "select"]) }
             }
             if event.pointee.event_id == MPV_EVENT_END_FILE, let data = event.pointee.data {
                 let end = data.assumingMemoryBound(to: mpv_event_end_file.self).pointee
@@ -189,8 +238,9 @@ final class PlayerController: UIViewController {
         if tick % 4 == 0 {
             tracks = (0..<min(200, max(0, Int(number("track-list/count"))))).map { index in
                 let base = "track-list/\(index)"
-                return MPVTrack(id: Int(number("\(base)/id")), type: string("\(base)/type"), title: string("\(base)/title"), lang: string("\(base)/lang"), selected: string("\(base)/selected") == "yes", external: string("\(base)/external") == "yes", forced: string("\(base)/forced") == "yes", defaultTrack: false, hearingImpaired: false, codec: string("\(base)/codec"), externalFilename: "")
+                return MPVTrack(id: Int(number("\(base)/id")), type: string("\(base)/type"), title: string("\(base)/title"), lang: string("\(base)/lang"), selected: string("\(base)/selected") == "yes", external: string("\(base)/external") == "yes", forced: string("\(base)/forced") == "yes", defaultTrack: string("\(base)/default") == "yes", hearingImpaired: string("\(base)/hearing-impaired") == "yes", codec: string("\(base)/codec"), externalFilename: "")
             }
+            if let tracks { autoSelect(tracks) }
             let count = min(500, max(0, Int(number("chapter-list/count"))))
             chapters = (0..<count).map { index in
                 MediaChapter(title: string("chapter-list/\(index)/title"), start: number("chapter-list/\(index)/time"), end: index + 1 < count ? number("chapter-list/\(index + 1)/time") : duration)

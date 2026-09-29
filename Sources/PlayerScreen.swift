@@ -8,6 +8,7 @@ struct PlayerScreen: View {
     @StateObject private var state = PlayerState()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var playbackReturn: PlaybackReturn
     @State private var controls = true
     @State private var lastInteraction = Date()
     @State private var panel: Panel?
@@ -35,6 +36,10 @@ struct PlayerScreen: View {
     @AppStorage("autoSkipRecap") private var autoSkipRecap = false
     @AppStorage("autoSkipOutro") private var autoSkipOutro = false
     @AppStorage("controlsHideSeconds") private var controlsHideSeconds = 4.0
+    @AppStorage("preferredAudio") private var preferredAudio = TrackPreferences.systemLanguage
+    @AppStorage("preferredSubtitles") private var preferredSubtitles = TrackPreferences.systemLanguage
+    @AppStorage("preferForced") private var preferForced = true
+    @AppStorage("seekSeconds") private var seekSeconds = 15
     private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     enum Panel: String, Identifiable { case speed, anime, audio, subtitles, metadata; var id: String { rawValue } }
 
@@ -44,8 +49,15 @@ struct PlayerScreen: View {
                 Color.black.ignoresSafeArea()
                 VideoSurface(request: request, state: state).id(request.id).ignoresSafeArea()
                 Rectangle().fill(.clear).contentShape(Rectangle())
-                    .onTapGesture { controls.toggle(); touch() }
-                    .gesture(DragGesture(minimumDistance: 18).onChanged { value in
+                    .gesture(SpatialTapGesture(count: 2).exclusively(before: SpatialTapGesture(count: 1)).onEnded { value in
+                        switch value {
+                        case .first(let tap):
+                            let amount = tap.location.x < geometry.size.width / 2 ? -seekSeconds : seekSeconds
+                            state.skip(Double(amount)); hud = "\(amount > 0 ? "+" : "")\(amount) Sekunden"; touch()
+                        case .second: controls.toggle(); touch()
+                        }
+                    })
+                    .simultaneousGesture(DragGesture(minimumDistance: 18).onChanged { value in
                         guard abs(value.translation.height) > abs(value.translation.width) else { return }
                         if gestureStart == nil {
                             gestureSide = value.startLocation.x < geometry.size.width / 2
@@ -89,6 +101,9 @@ struct PlayerScreen: View {
             if (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { state.controller?.property("pause", "yes") }
         }
         .onChange(of: style) { _, value in state.controller?.style(value) }
+        .onChange(of: preferredAudio) { _, _ in state.controller?.applyLanguagePreferences() }
+        .onChange(of: preferredSubtitles) { _, _ in state.controller?.applyLanguagePreferences() }
+        .onChange(of: preferForced) { _, _ in state.controller?.applyLanguagePreferences() }
         .onReceive(pulse) { _ in
             if Date().timeIntervalSince(lastInteraction) > controlsHideSeconds {
                 hud = nil
@@ -127,9 +142,9 @@ struct PlayerScreen: View {
     }
     private var transport: some View {
         HStack(spacing: 10) {
-            icon("gobackward.10", "10 Sekunden zurück") { state.skip(-10) }
+            icon("gobackward.\(seekSeconds)", "\(seekSeconds) Sekunden zurück") { state.skip(-Double(seekSeconds)) }
             icon(state.paused ? "play.fill" : "pause.fill", "Play/Pause") { state.toggle() }
-            icon("goforward.10", "10 Sekunden vor") { state.skip(10) }
+            icon("goforward.\(seekSeconds)", "\(seekSeconds) Sekunden vor") { state.skip(Double(seekSeconds)) }
         }
     }
     private var options: some View {
@@ -152,21 +167,23 @@ struct PlayerScreen: View {
                 ForEach(["off", "fast", "A", "B", "C", "hq"], id: \.self) { value in Button { preset = value; state.controller?.anime(value) } label: { HStack { Text(animeLabel(value)); Spacer(); if preset == value { Image(systemName: "checkmark") } } } }
                 Text("Echte Anime4K-Shader direkt in der GPU-Pipeline. Hohe Qualität benötigt mehr Leistung und Akku. Für den Einstieg: Schnell oder Modus A.").font(.footnote).foregroundStyle(.secondary)
             }
-        case .audio: List { trackRows("audio") }
+        case .audio: Form { Section("Audiospur") { trackRows("audio"); Button("Spuren wieder automatisch auswählen") { state.controller?.applyLanguagePreferences() } }; LanguagePreferencesView() }
         case .subtitles:
             Form {
                 Section("Sprache") {
-                    Button("Untertitel ausschalten") { state.controller?.property("sid", "no") }
+                    Button("Untertitel ausschalten") { state.controller?.selectTrack("sub", id: -1) }
+                    Button("Spuren wieder automatisch auswählen") { state.controller?.applyLanguagePreferences() }
                     trackRows("sub")
                 }
                 Section("Externe Untertitel") {
                     TextField("https:// … .srt / .ass / .vtt", text: $externalSubtitle).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Button("URL laden") {
-                        if let url = URL(string: externalSubtitle), ["http", "https"].contains(url.scheme ?? "") { state.controller?.command(["sub-add", url.absoluteString, "select"]) }
+                        if let url = URL(string: externalSubtitle), ["http", "https"].contains(url.scheme ?? "") { state.controller?.addSubtitle(url.absoluteString) }
                     }
                     Button("Datei importieren") { importSubtitle = true }
                 }
                 SubtitleEditor(style: $style, importFont: $importFont)
+                LanguagePreferencesView()
             }
         case .metadata:
             Form {
@@ -183,6 +200,7 @@ struct PlayerScreen: View {
                     Toggle("Intro", isOn: $autoSkipIntro); Toggle("Rückblick", isOn: $autoSkipRecap); Toggle("Abspann", isOn: $autoSkipOutro)
                 }
                 Section("Verbindung") {
+                    Text(request.successCallback == nil ? "Kein Stremio-Rückkanal vorhanden. Für Fortsetzen und Rückgabe in Stremio „Infuse“ auswählen." : "Stremio-Fortsetzen aktiv. Start: \(timestamp(request.start)). Beim Schließen wird die aktuelle Position zurückgegeben.").font(.footnote)
                     Stepper("Bedienleiste: \(Int(controlsHideSeconds)) Sekunden", value: $controlsHideSeconds, in: 3...30, step: 1)
                     Button("Mit \(request.url.scheme == "https" ? "HTTP" : "HTTPS") erneut öffnen") {
                         var parts = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
@@ -197,14 +215,14 @@ struct PlayerScreen: View {
         let tracks = state.tracks.filter { $0.type == type }
         if tracks.isEmpty { Text("Keine Spuren verfügbar").foregroundStyle(.secondary) }
         ForEach(tracks) { track in
-            Button { state.controller?.property(type == "audio" ? "aid" : "sid", String(track.id)) } label: {
+            Button { state.controller?.selectTrack(type, id: track.id) } label: {
                 HStack {
                     VStack(alignment: .leading) {
                         Text(track.lang.isEmpty ? "Spur \(track.id)" : Locale.current.localizedString(forLanguageCode: track.lang) ?? track.lang)
                         Text([track.title, track.codec, track.forced ? "Forced" : ""].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                     }; Spacer(); if track.selected { Image(systemName: "checkmark") }
                 }
-            }
+            }.accessibilityIdentifier("track-\(type)-\(track.id)").accessibilityValue(track.selected ? "selected" : "unselected")
         }
     }
     private var lookupKey: String { "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)" }
@@ -224,7 +242,7 @@ struct PlayerScreen: View {
     private func animeLabel(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
     private func restart(_ url: URL) {
         guard !closing else { return }; closing = true
-        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: anime, start: state.position, subtitle: request.subtitle)
+        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: anime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback)
         let replace = {
             if pendingExternalClose { dismiss(); return }
             request = replacement
@@ -234,7 +252,12 @@ struct PlayerScreen: View {
     }
     private func closePlayer() {
         guard !closing else { return }; closing = true
-        if let controller = state.controller { controller.shutdown { dismiss() } } else { dismiss() }
+        if let controller = state.controller {
+            controller.finishPlayback { position, loaded in
+                if !pendingExternalClose { playbackReturn.prepare(request, position: position, loaded: loaded) }
+                dismiss()
+            }
+        } else { dismiss() }
     }
     private func importFontFile(_ result: Result<URL, Error>) {
         do {
@@ -256,7 +279,7 @@ struct PlayerScreen: View {
             guard ["srt", "ass", "ssa", "vtt", "sub"].contains(source.pathExtension.lowercased()) else { throw PlaybackRequest.RequestError.invalidURL }
             let target = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(source.pathExtension)
             try FileManager.default.copyItem(at: source, to: target)
-            state.controller?.command(["sub-add", target.path, "select"])
+            state.controller?.addSubtitle(target.path)
         } catch { state.error = "Untertitel konnten nicht importiert werden: \(error.localizedDescription)" }
     }
 }
