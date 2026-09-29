@@ -94,7 +94,7 @@ final class PlayerController: UIViewController {
         mpv_set_option_string(mpv, "sub-fonts-dir", FontStore.directory.path)
         for (key, value) in SubtitleSettings.load().options { mpv_set_option_string(mpv, key, value) }
         let result = mpv_initialize(mpv)
-        diagnostic("initialize=\(result) surface=\(layer.drawableSize)")
+        diagnostic("initialize=\(result) surface=\(layer.drawableSize) start=\(request.start)")
         guard result >= 0 else {
             state?.error = "Player-Start fehlgeschlagen: \(String(cString: mpv_error_string(result)))"
             handle = nil; mpv_terminate_destroy(mpv); return

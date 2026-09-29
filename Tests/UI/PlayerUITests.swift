@@ -17,13 +17,16 @@ final class PlayerUITests: XCTestCase {
             app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
         }
         let clock = app.staticTexts["playbackClock"]
-        waitUntil("Playback resumes at the incoming Stremio timestamp") { self.seconds(clock) >= 12 }
+        waitUntil("Playback starts") { self.seconds(clock) > 0 }
+        XCTAssertGreaterThanOrEqual(seconds(clock), 12, "The first playback position must honor Stremio resume")
         center.tap()
         waitUntil("Paused") { center.label == "Wiedergabe" }
         let start = seconds(clock)
+        capture("Before double tap")
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.42))
         let left = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.42))
         right.doubleTap()
+        capture("After double tap")
         waitUntil("Double tap right seeks 15 seconds") { abs(self.seconds(clock) - start - 15) <= 1 }
         left.doubleTap()
         waitUntil("Double tap left seeks back 15 seconds") { abs(self.seconds(clock) - start) <= 1 }
@@ -75,7 +78,9 @@ final class PlayerUITests: XCTestCase {
     }
     private func waitUntil(_ description: String, timeout: TimeInterval = 25, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed, description)
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        if result != .completed { capture(description) }
+        XCTAssertEqual(result, .completed, description)
     }
     private func capture(_ title: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
