@@ -23,6 +23,7 @@ struct PlayerScreen: View {
     @State private var gestureStart: CGFloat?
     @State private var gestureSide = false
     @State private var hud: String?
+    @State private var hudDeadline = Date.distantPast
     @State private var volume = MPVolumeView(frame: .zero)
     @State private var contentID = ""
     @State private var season = "1"
@@ -57,7 +58,7 @@ struct PlayerScreen: View {
                         switch value {
                         case .first(let tap):
                             let amount = tap.location.x < geometry.size.width / 2 ? -seekSeconds : seekSeconds
-                            state.skip(Double(amount)); hud = "\(amount > 0 ? "+" : "")\(amount) Sekunden"; touch()
+                            state.skip(Double(amount)); showHUD("\(amount > 0 ? "+" : "")\(amount) Sekunden"); touch()
                         case .second: withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { controls.toggle() }; touch()
                         }
                     })
@@ -70,7 +71,7 @@ struct PlayerScreen: View {
                         let level = min(1, max(0, (gestureStart ?? 0) - value.translation.height / (geometry.size.height * 0.75)))
                         if gestureSide { UIScreen.main.brightness = level }
                         else { setVolume(Double(level)) }
-                        hud = "\(gestureSide ? "Helligkeit" : "Lautstärke") \(Int(level * 100)) %"
+                        showHUD("\(gestureSide ? "Helligkeit" : "Lautstärke") \(Int(level * 100)) %")
                         touch()
                     }.onEnded { _ in gestureStart = nil; touch() })
                 SystemVolumeView(volume: volume).frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
@@ -85,20 +86,22 @@ struct PlayerScreen: View {
                         if let segment = state.currentSegment, panel == nil {
                             VStack { Spacer(); HStack { Spacer(); Button { state.seek(segment.end); touch() } label: { Label(segment.label, systemImage: "forward.end.fill").font(.subheadline.weight(.semibold)).padding(.horizontal, 18).padding(.vertical, 13) }.buttonStyle(.plain).harborGlass(interactive: true) }.padding(.bottom, controls ? 152 : 28) }.padding(.horizontal, 24)
                         }
-                        if let selection = panel {
-                            Color.black.opacity(0.12).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { closePanel() }.accessibilityLabel("Einstellungen schließen").accessibilityAddTraits(.isButton)
-                            PlayerGlassPanel(title: panelTitle(selection), symbol: panelSymbol(selection), back: selection == .settings ? nil : { panel = .settings; touch() }, close: closePanel) {
-                                panelContent(selection)
-                            }
-                            .frame(width: min(360, geometry.size.width - 32), height: min(520, geometry.size.height - 24))
-                            .padding(.trailing, 16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .trailing)))
-                        }
                         if closing { ProgressView("Schließen …").padding(20).harborGlass(radius: 20) }
                     }
+                }.zIndex(1)
+                // Menus are a separate glass layer, so toolbar glass cannot merge
+                // with them or draw its controls above the menu's text.
+                if let selection = panel {
+                    Color.black.opacity(0.18).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { closePanel() }
+                        .accessibilityLabel("Einstellungen schließen").accessibilityAddTraits(.isButton).zIndex(2)
+                    PlayerGlassPanel(title: panelTitle(selection), symbol: panelSymbol(selection), back: selection == .settings ? nil : { panel = .settings; touch() }, close: closePanel) {
+                        panelContent(selection)
+                    }
+                    .id(selection)
+                    .frame(width: min(360, geometry.size.width - 32), height: min(520, geometry.size.height - 24))
+                    .padding(.trailing, 16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing).zIndex(3)
                 }
             }.foregroundStyle(.white).tint(.white).buttonStyle(.plain)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: panel)
         }
         .statusBarHidden().persistentSystemOverlays(.hidden)
         .sheet(item: $detail, onDismiss: { touch() }) { selection in
@@ -125,6 +128,7 @@ struct PlayerScreen: View {
         .onChange(of: preferForced) { _, _ in state.controller?.applyLanguagePreferences() }
         .onReceive(pulse) { _ in
             volumeLevel = Double(AVAudioSession.sharedInstance().outputVolume)
+            if Date() >= hudDeadline { hud = nil }
             if Date().timeIntervalSince(lastInteraction) > controlsHideSeconds {
                 hud = nil
                 if !state.paused && !state.buffering && state.duration > 0 && panel == nil && detail == nil && !scrubbing { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controls = false } }
@@ -312,6 +316,7 @@ struct PlayerScreen: View {
     }
     private func shouldAutoSkip(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoSkipIntro; case .recap: return autoSkipRecap; case .outro: return autoSkipOutro } }
     private func touch() { lastInteraction = Date() }
+    private func showHUD(_ text: String) { hud = text; hudDeadline = Date().addingTimeInterval(1.2) }
     private func timestamp(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
     private func panelTitle(_ panel: Panel) -> String { switch panel { case .settings: return "Einstellungen"; case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }
     private func panelSymbol(_ panel: Panel) -> String { switch panel { case .settings: return "gearshape"; case .speed: return "speedometer"; case .anime: return "sparkles.tv"; case .audio: return "waveform"; case .subtitles: return "captions.bubble" } }

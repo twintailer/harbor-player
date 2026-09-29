@@ -63,7 +63,7 @@ struct PlayerGlassPanel<Content: View>: View {
             }.scrollBounceBehavior(.basedOnSize).accessibilityIdentifier("playerPanelScroll")
         }
         .buttonStyle(.plain).tint(.white).foregroundStyle(.white)
-        .harborGlass(radius: 30).accessibilityIdentifier("playerSettingsPanel")
+        .harborGlass(radius: 30).accessibilityElement(children: .contain).accessibilityIdentifier("playerSettingsPanel")
     }
 }
 
@@ -119,6 +119,7 @@ struct PlaybackTimeline: View {
                 })
         }.frame(height: 32)
             .accessibilityElement().accessibilityLabel("Wiedergabeposition")
+            .accessibilityIdentifier("playbackTimeline")
             .accessibilityValue("\(Int(position)) von \(Int(duration)) Sekunden")
             .accessibilityAdjustableAction { direction in
                 guard duration > 0 else { return }

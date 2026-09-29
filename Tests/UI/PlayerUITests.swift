@@ -77,7 +77,7 @@ final class PlayerUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)).tap()
         XCTAssertTrue(center.isHittable)
         // The new narrow timeline still supports direct seeking.
-        let timeline = app.otherElements["Wiedergabeposition"]
+        let timeline = app.descendants(matching: .any).matching(identifier: "playbackTimeline").firstMatch
         XCTAssertTrue(timeline.exists)
         timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)).tap()
         waitUntil("Timeline seeks to 60 percent") { abs(self.seconds(clock) - 36) <= 1 }
