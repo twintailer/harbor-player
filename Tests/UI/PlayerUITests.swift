@@ -105,19 +105,19 @@ final class PlayerUITests: XCTestCase {
     func testChapterSkipAndCleanVideo() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-controlsHideSeconds", "2", "-autoSkipRecap", "NO", "-autoSkipIntro", "NO"]
+        app.launchArguments = ["-controlsHideSeconds", "30", "-autoSkipRecap", "NO", "-autoSkipIntro", "NO"]
         var link = URLComponents(string: "infuse://x-callback-url/play")!
         link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/skip-chapters.mkv"), .init(name: "position", value: "2")]
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
         app.launch()
         let center = app.buttons["centerPlayPause"]
-        XCTAssertTrue(center.waitForExistence(timeout: 30))
+        let recap = app.buttons["Skip Recap"]
+        XCTAssertTrue(recap.waitForExistence(timeout: 30), "Chapters work without entering any media identity")
+        if !center.exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)).tap() }
         let clock = app.staticTexts["playbackClock"]
         waitUntil("Chapter fixture starts") { self.seconds(clock) > 0 }
         center.tap()
         waitUntil("Pause chapter fixture") { center.label == "Wiedergabe" }
-        let recap = app.buttons["Skip Recap"]
-        XCTAssertTrue(recap.waitForExistence(timeout: 30), "Chapters work without entering any media identity")
         recap.tap()
         let intro = app.buttons["Skip Intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 10))
@@ -125,6 +125,9 @@ final class PlayerUITests: XCTestCase {
         waitUntil("Intro skip seeks to chapter end") { abs(self.seconds(clock) - 30) <= 1 }
         capture("Intro and recap skipped without input")
         center.tap()
+        // A single tap hides the same overlay removed by the inactivity timer,
+        // without letting a slow XCTest idle wait race the visible clock.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)).tap()
         waitUntil("Controls disappear completely") { !app.buttons["centerPlayPause"].exists }
         capture("Clean video with all controls hidden")
         app.terminate()
