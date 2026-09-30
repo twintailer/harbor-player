@@ -68,7 +68,8 @@ jobs:
           set -o pipefail
           python3 Tests/fixture_server.py >/tmp/fixture-server.log 2>&1 &
           xcrun simctl bootstatus "$KAIRO_TV_SIMULATOR" -b
-          xcodebuild -project HarborPlayer.xcodeproj -scheme KairoTV -destination "platform=tvOS Simulator,id=$KAIRO_TV_SIMULATOR" -derivedDataPath build-tv-simulator -clonedSourcePackagesDirPath spm -resultBundlePath tv-ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee tv-ui-tests.log | tail -90
+          # Avoid the preview runner's hanging sysdiagnose; assertions/logs/screenshots remain in xcresult.
+          xcodebuild -project HarborPlayer.xcodeproj -scheme KairoTV -destination "platform=tvOS Simulator,id=$KAIRO_TV_SIMULATOR" -derivedDataPath build-tv-simulator -clonedSourcePackagesDirPath spm -resultBundlePath tv-ui-tests.xcresult -collect-test-diagnostics never -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee tv-ui-tests.log | tail -90
       - name: Export Apple TV screenshots
         if: always()
         run: |
