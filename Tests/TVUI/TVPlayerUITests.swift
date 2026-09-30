@@ -61,6 +61,10 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.menu)
         wait("Controls hidden") { !app.staticTexts["playbackClock"].exists }
         capture("Apple TV clean paused video")
+        remote.press(.select)
+        wait("Select reveals paused controls") { app.staticTexts["playbackClock"].exists && app.buttons["centerPlayPause"].label == "Wiedergabe" }
+        remote.press(.menu)
+        wait("Controls hide again") { !app.staticTexts["playbackClock"].exists }
         remote.press(.playPause)
         wait("Remote resumes and reveals controls") { app.buttons["centerPlayPause"].label == "Pause" }
         remote.press(.playPause)

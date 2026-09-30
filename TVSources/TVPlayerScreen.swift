@@ -39,8 +39,10 @@ struct TVPlayerScreen: View {
             Color.black.ignoresSafeArea()
             VideoSurface(request: request, state: state).id(request.id).ignoresSafeArea().allowsHitTesting(false)
             if !controls && panel == nil {
-                Button { reveal() } label: { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle()) }
-                    .buttonStyle(.plain).focusEffectDisabled().focused($focus, equals: .screen).accessibilityLabel("Bedienleiste öffnen")
+                Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+                    .focusable().focusEffectDisabled().focused($focus, equals: .screen)
+                    .onTapGesture { reveal() }
+                    .accessibilityLabel("Bedienleiste öffnen").accessibilityAddTraits(.isButton)
                     .onMoveCommand { direction in
                         if direction == .left { state.skip(-Double(seekSeconds)) }
                         else if direction == .right { state.skip(Double(seekSeconds)) }
