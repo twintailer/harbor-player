@@ -24,7 +24,8 @@ manifest(BRAND, {'assets': [
 ]})
 for name, width, height, scales in [('App Icon', 400, 240, [1, 2]), ('App Store', 1280, 768, [1])]:
     stack = BRAND / (name + '.imagestack')
-    manifest(stack, {'layers': [{'filename': 'Back.imagestacklayer'}, {'filename': 'Front.imagestacklayer'}]})
+    # Asset catalogs list the frontmost layer first; the last layer must be opaque.
+    manifest(stack, {'layers': [{'filename': 'Front.imagestacklayer'}, {'filename': 'Back.imagestacklayer'}]})
     for layer in ['Back', 'Front']:
         folder = stack / (layer + '.imagestacklayer')
         manifest(folder, {})

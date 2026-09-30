@@ -1,4 +1,6 @@
-# Kairo Player for iPhone
+# Kairo Player for iPhone and Apple TV
+
+For the dedicated **tvOS 27** version, installation and Siri Remote controls, see [Kairo Player for Apple TV](docs/AppleTV.md). The `KairoTV` scheme shares the playback engine and settings with the iPhone app.
 
 Native SwiftUI/libmpv external player for Stremio, iOS 17+. Built-in Anime4K GPU shaders, MKV/HLS playback, embedded and external ASS/SRT subtitles, audio/subtitle track menus, playback speed, seek controls, brightness/volume swipes, AniSkip and TheIntroDB integration.
 

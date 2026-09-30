@@ -17,6 +17,9 @@ struct TVPlayerScreen: View {
     @State private var style = SubtitleSettings.load()
     @State private var skipped: Set<String> = []
     @State private var identity: PlaybackRequest?
+    @State private var contentID = ""
+    @State private var season = ""
+    @State private var episode = ""
     @State private var lookupRevision = 0
     @FocusState private var focus: Control?
     @AppStorage("seekSeconds") private var seekSeconds = 15
@@ -52,7 +55,7 @@ struct TVPlayerScreen: View {
                     .focused($focus, equals: .skip).accessibilityIdentifier("skipSegment") }.padding(.bottom, controls ? 250 : 70) }.padding(.horizontal, 70)
             }
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
-        }.foregroundStyle(.white).tint(.white)
+        }.preferredColorScheme(.dark).tint(.white)
             .onPlayPauseCommand { state.toggle(); reveal() }
             .onExitCommand {
                 if panel != nil { panel = nil; reveal() }
@@ -60,6 +63,8 @@ struct TVPlayerScreen: View {
                 else { close() }
             }
             .onChange(of: focus) { _, _ in touch() }
+            .onChange(of: panel) { _, value in if value != nil { focus = nil } }
+            .onChange(of: detail) { _, value in if value != nil { focus = nil } }
             .onChange(of: scenePhase) { _, phase in if phase != .active { state.controller?.property("pause", "yes") } }
             .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in state.controller?.property("pause", "yes") }
             .onReceive(NotificationCenter.default.publisher(for: .harborReplacePlayback)) { _ in replacing = true; close() }
@@ -67,7 +72,10 @@ struct TVPlayerScreen: View {
             .onChange(of: audio) { _, _ in state.controller?.applyLanguagePreferences() }
             .onChange(of: subtitles) { _, _ in state.controller?.applyLanguagePreferences() }
             .onChange(of: forced) { _, _ in state.controller?.applyLanguagePreferences() }
-            .onAppear { focus = .play; UIApplication.shared.isIdleTimerDisabled = true }
+            .onAppear {
+                contentID = request.contentID; season = request.season.map(String.init) ?? ""; episode = request.episode.map(String.init) ?? ""
+                focus = .play; UIApplication.shared.isIdleTimerDisabled = true
+            }
             .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
             .onReceive(pulse) { _ in
                 if controls && panel == nil && detail == nil && !state.paused && !state.buffering && state.duration > 0 && Date().timeIntervalSince(interaction) > hideSeconds {
@@ -185,21 +193,32 @@ struct TVPlayerScreen: View {
     }
     private var metadata: some View {
         TVSheet(title: "Medien & Skip Intro") {
-            Text((identity ?? request).contentID.isEmpty ? "Keine eindeutige Medien-ID vorhanden" : (identity ?? request).contentID).accessibilityIdentifier("detectedContentID")
+            Text("Medien und Folgen werden automatisch erkannt. Diese Felder dienen nur als optionale Korrektur.").font(.callout).foregroundStyle(.secondary)
+            TextField("Medien-ID", text: $contentID).accessibilityIdentifier("detectedContentID")
+            TextField("Staffel", text: $season)
+            TextField("Episode", text: $episode)
             Text(state.skipStatus).foregroundStyle(.secondary)
             Button("Zeiten erneut suchen") { lookupRevision += 1 }
             Toggle("Intro automatisch überspringen", isOn: $autoIntro)
             Toggle("Recap automatisch überspringen", isOn: $autoRecap)
             Toggle("Abspann automatisch überspringen", isOn: $autoOutro)
             Text(request.successCallback == nil ? "Stremio hat keinen Rückkanal übergeben." : "Die Position wird beim Schließen an Stremio übergeben.").foregroundStyle(.secondary)
+            Button("Mit \(request.url.scheme == "https" ? "HTTP" : "HTTPS") erneut öffnen") {
+                var parts = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
+                parts?.scheme = request.url.scheme == "https" ? "http" : "https"
+                if let url = parts?.url { detail = nil; restart(url) }
+            }
         }
     }
     private func lookup() async {
         guard state.duration > 0 else { return }
         state.segments = IntroSkipService.chapterSegments(state.chapters, duration: state.duration)
         state.skipStatus = "Suche nach Intro- und Recap-Zeiten …"
-        let value = await IntroSkipService.identify(request)
-        guard !Task.isCancelled else { return }; identity = value
+        var proposed = request
+        proposed.contentID = contentID; proposed.season = Int(season); proposed.episode = Int(episode)
+        let value = await IntroSkipService.identify(proposed)
+        guard !Task.isCancelled else { return }
+        identity = value; contentID = value.contentID; season = value.season.map(String.init) ?? ""; episode = value.episode.map(String.init) ?? ""
         let segments = await IntroSkipService.segments(contentID: value.contentID, season: value.season, episode: value.episode, duration: state.duration, isAnime: value.isAnime, chapters: state.chapters) { partial in
             if !Task.isCancelled { state.segments = partial }
         }
@@ -210,6 +229,17 @@ struct TVPlayerScreen: View {
     private func automatic(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoIntro; case .recap: return autoRecap; case .outro: return autoOutro } }
     private func touch() { interaction = Date() }
     private func reveal() { controls = true; focus = .play; touch() }
+    private func restart(_ url: URL) {
+        guard !closing else { return }; closing = true
+        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: request.isAnime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback)
+        let replace = {
+            if replacing { dismiss(); return }
+            request = replacement; identity = nil
+            state.buffering = true; state.duration = 0; state.segments = []; state.animeActive = false
+            state.speed = 1; preset = "off"; skipped = []; closing = false; reveal()
+        }
+        if let controller = state.controller { controller.shutdown(completion: replace) } else { replace() }
+    }
     private func close() {
         guard !closing else { return }; closing = true
         if let controller = state.controller {
