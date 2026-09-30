@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 final class TVPlayerUITests: XCTestCase {
     private let remote = XCUIRemote.shared
@@ -60,6 +61,7 @@ final class TVPlayerUITests: XCTestCase {
         wait("Subtitle menu dismisses") { app.buttons["Subtitle language"].hasFocus && !app.buttons["closeSettings"].exists }
         remote.press(.menu)
         wait("Controls hidden") { !app.staticTexts["playbackClock"].exists }
+        assertVideoUnobscured()
         capture("Apple TV clean paused video")
         remote.press(.select)
         wait("Select reveals paused controls") { app.staticTexts["playbackClock"].exists && app.buttons["centerPlayPause"].label == "Wiedergabe" }
@@ -109,5 +111,16 @@ final class TVPlayerUITests: XCTestCase {
     private func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+    private func assertVideoUnobscured() {
+        // This fixture has a magenta stripe here. A white system focus plate
+        // adds green even though the playback controls no longer exist.
+        guard let frame = XCUIScreen.main.screenshot().image.cgImage else { XCTFail("Screenshot unavailable"); return }
+        var rgba = [UInt8](repeating: 0, count: 4)
+        rgba.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { XCTFail("Pixel context unavailable"); return }
+            context.draw(frame, in: CGRect(x: -Double(frame.width) * 0.75, y: -Double(frame.height) * 0.85, width: Double(frame.width), height: Double(frame.height)))
+        }
+        XCTAssertLessThan(rgba[1], 120, "Hidden controls must not cover video with a white focus plate")
     }
 }
