@@ -86,8 +86,8 @@ struct TVPlayerScreen: View {
                 }
             }
             .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
-            .sheet(item: $panel, onDismiss: { reveal() }) { menu($0) }
-            .sheet(item: $detail, onDismiss: { reveal() }) { selection in
+            .sheet(item: $panel, onDismiss: restoreAfterMenu) { menu($0) }
+            .sheet(item: $detail, onDismiss: restoreAfterMenu) { selection in
                 switch selection {
                 case .preferences: TVPreferences()
                 case .subtitles: TVSubtitleSettings(style: $style, controller: state.controller)
@@ -229,6 +229,10 @@ struct TVPlayerScreen: View {
     private func automatic(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoIntro; case .recap: return autoRecap; case .outro: return autoOutro } }
     private func touch() { interaction = Date() }
     private func reveal() { controls = true; focus = .play; touch() }
+    private func restoreAfterMenu() {
+        // Let tvOS restore focus to the button that presented the menu.
+        controls = true; touch()
+    }
     private func restart(_ url: URL) {
         guard !closing else { return }; closing = true
         let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: request.isAnime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback)

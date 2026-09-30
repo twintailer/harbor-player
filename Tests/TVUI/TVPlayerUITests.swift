@@ -33,8 +33,8 @@ final class TVPlayerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["closeSettings"].waitForExistence(timeout: 10))
         capture("Apple TV speed menu")
         remote.press(.menu)
-        wait("Menu restores player focus") { app.buttons["Play-Pause"].hasFocus }
-        for _ in 0..<3 { remote.press(.right) }
+        wait("Menu restores speed button focus") { app.buttons["Playback speed"].hasFocus }
+        remote.press(.right)
         XCTAssertTrue(app.buttons["Anime4K"].hasFocus)
         remote.press(.select)
         wait("Anime4K menu opens") { app.buttons["anime-off"].hasFocus }
@@ -43,15 +43,15 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.select)
         wait("Anime4K enabled on TV") { app.descendants(matching: .any)["animeActive"].exists }
         remote.press(.menu)
-        wait("Shader menu restores focus") { app.buttons["Play-Pause"].hasFocus }
+        wait("Shader menu restores focus") { app.buttons["Anime4K"].hasFocus }
         capture("Apple TV Anime4K active")
-        for _ in 0..<4 { remote.press(.right) }
+        remote.press(.right)
         XCTAssertTrue(app.buttons["Audio language"].hasFocus)
         remote.press(.select)
         wait("German audio chosen automatically") { app.buttons["track-audio-1"].value as? String == "selected" }
         remote.press(.menu)
-        wait("Player focus restored") { app.buttons["Play-Pause"].hasFocus }
-        for _ in 0..<5 { remote.press(.right) }
+        wait("Audio button focus restored") { app.buttons["Audio language"].hasFocus }
+        remote.press(.right)
         XCTAssertTrue(app.buttons["Subtitle language"].hasFocus)
         remote.press(.select)
         wait("Forced German subtitles chosen") { app.buttons["track-sub-1"].value as? String == "selected" }
