@@ -57,6 +57,7 @@ final class TVPlayerUITests: XCTestCase {
         wait("Forced German subtitles chosen") { app.buttons["track-sub-1"].value as? String == "selected" }
         capture("Apple TV subtitle menu")
         remote.press(.menu)
+        wait("Subtitle menu dismisses") { app.buttons["Subtitle language"].hasFocus && !app.buttons["closeSettings"].exists }
         remote.press(.menu)
         wait("Controls hidden") { !app.staticTexts["playbackClock"].exists }
         capture("Apple TV clean paused video")

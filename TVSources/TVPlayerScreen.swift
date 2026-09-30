@@ -231,7 +231,8 @@ struct TVPlayerScreen: View {
     private func reveal() { controls = true; focus = .play; touch() }
     private func restoreAfterMenu() {
         // Let tvOS restore focus to the button that presented the menu.
-        controls = true; touch()
+        // A second Back may already have hidden controls during dismissal.
+        touch()
     }
     private func restart(_ url: URL) {
         guard !closing else { return }; closing = true
