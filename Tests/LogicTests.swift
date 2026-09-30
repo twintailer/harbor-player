@@ -21,6 +21,21 @@ import Foundation
         infuse.queryItems = [.init(name: "url", value: stream), .init(name: "filename", value: "Episode 2"), .init(name: "position", value: "1234"), .init(name: "x-success", value: "stremio:///detail/series/tt123/tt123:1:2?keep=yes&position=1")]
         let resumed = try PlaybackRequest.parse(infuse.url!)
         precondition(resumed.start == 1234 && resumed.title == "Episode 2" && resumed.url.absoluteString == stream)
+        precondition(resumed.contentID == "tt123" && resumed.season == 1 && resumed.episode == 2,
+                     "Native Stremio identity must be extracted without extra input")
+        var animeLink = infuse
+        animeLink.queryItems = [.init(name: "url", value: stream), .init(name: "x-success", value: "stremio:///detail/anime/kitsu:41982/kitsu:41982:1")]
+        let animeRequest = try PlaybackRequest.parse(animeLink.url!)
+        precondition(animeRequest.contentID == "kitsu:41982" && animeRequest.episode == 1 && animeRequest.isAnime)
+        animeLink.queryItems = [.init(name: "url", value: stream), .init(name: "x-success", value: "https://web.stremio.com/#/detail/series/tt2560140/tt2560140:3:13")]
+        let webIdentity = try PlaybackRequest.parse(animeLink.url!)
+        precondition(webIdentity.contentID == "tt2560140" && webIdentity.season == 3 && webIdentity.episode == 13)
+        animeLink.queryItems = [.init(name: "url", value: stream), .init(name: "id", value: "mal:38524"), .init(name: "episode", value: "1"), .init(name: "x-success", value: "stremio:///detail/series/tt2560140/tt2560140:3:13")]
+        let explicit = try PlaybackRequest.parse(animeLink.url!)
+        precondition(explicit.contentID == "mal:38524" && explicit.episode == 1 && explicit.season == 1,
+                     "Explicit MAL numbering must take priority over IMDb numbering")
+        let filename = try PlaybackRequest.parse(URL(string: "https://example.org/Attack.on.Titan.S03E13.1080p.mkv")!)
+        precondition(filename.season == 3 && filename.episode == 13 && filename.contentID.isEmpty)
         let callback = PlaybackCallback.make(request: resumed, position: 1250.99, loaded: true)!
         let returned = URLComponents(url: callback, resolvingAgainstBaseURL: false)!
         precondition(returned.scheme == "stremio" && returned.path == "/detail/series/tt123/tt123:1:2")

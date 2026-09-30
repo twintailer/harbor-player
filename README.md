@@ -1,4 +1,4 @@
-# Harbor Player for iPhone
+# Kairo Player for iPhone
 
 Native SwiftUI/libmpv external player for Stremio, iOS 17+. Built-in Anime4K GPU shaders, MKV/HLS playback, embedded and external ASS/SRT subtitles, audio/subtitle track menus, playback speed, seek controls, brightness/volume swipes, AniSkip and TheIntroDB integration.
 
@@ -6,13 +6,13 @@ Native SwiftUI/libmpv external player for Stremio, iOS 17+. Built-in Anime4K GPU
 
 The Actions artifact contains an **unsigned IPA**. Sign with your own Apple ID using your sideloading setup before installing. This repository does not contain Apple certificates or provisioning profiles.
 
-In the **native Stremio app → Settings → external player**, select **Infuse**. Harbor accepts its `infuse://x-callback-url/play` protocol, including the saved `position` in seconds. On closing the player with the upper-left button, Harbor returns the actual playback position and original stream URL through Stremio's `x-success` callback. This requires a Stremio version that supplies these parameters. No additional Stremio login is needed. Do not keep the original Infuse installed at the same time: iOS does not reliably select between apps registering the same scheme. This is a compatibility bridge, not an official Stremio integration.
+In the **native Stremio app → Settings → external player**, select **Infuse**. Kairo accepts its `infuse://x-callback-url/play` protocol, including the saved `position` in seconds. On closing the player with the upper-left button, Kairo returns the actual playback position and original stream URL through Stremio's `x-success` callback. This requires a Stremio version that supplies these parameters. No additional Stremio login is needed. Do not keep the original Infuse installed at the same time: iOS does not reliably select between apps registering the same scheme. This is a compatibility bridge, not an official Stremio integration.
 
-**VLC** and **Outplayer** links remain supported, without their original apps installed, but Stremio does not supply resume/callback data through those integrations. Plain stream URLs cannot synchronize progress. Force-quitting Harbor cannot deliver a callback; use the player close button. Failed stream opens do not send zero progress. The callback payload is regression-tested; synchronization with a real native Stremio account has not been verified on a physical iPhone.
+**VLC** and **Outplayer** links remain supported, without their original apps installed, but Stremio does not supply resume/callback data through those integrations. Plain stream URLs cannot synchronize progress. Force-quitting Kairo cannot deliver a callback; use the player close button. Failed stream opens do not send zero progress. The callback payload is regression-tested; synchronization with a real native Stremio account has not been verified on a physical iPhone.
 
-Stremio replaces the original HTTP/HTTPS scheme with `outplayer`. Harbor defaults to HTTPS. For HTTP-only local servers, use the player's Info → connection switch or paste the original HTTP URL on the home screen. No silent downgrade of authenticated HTTPS streams is performed.
+Stremio replaces the original HTTP/HTTPS scheme with `outplayer`. Kairo defaults to HTTPS. For HTTP-only local servers, use the player's Info → connection switch or paste the original HTTP URL on the home screen. No silent downgrade of authenticated HTTPS streams is performed.
 
-Direct integration: `harborplayer://play?url=<percent-encoded-HTTP(S)-URL>&title=Title&id=tt1234567&season=1&episode=2&anime=0&start=0`. Anime IDs may use `mal:5114` or `kitsu:1`; `anime=1` enables AniSkip. Optional `subtitle` accepts an encoded HTTP(S) subtitle URL. Direct URLs preserve query strings and signed tokens. Torrent/magnet URLs need an external streaming server providing HTTP(S).
+Direct integration: `harborplayer://play?url=<percent-encoded-HTTP(S)-URL>&title=Title&id=tt1234567&season=1&episode=2&anime=0&start=0`. Anime IDs may use `mal:5114` or `kitsu:1`; Anime mapping is automatic; the legacy `anime` flag is optional. Optional `subtitle` accepts an encoded HTTP(S) subtitle URL. Direct URLs preserve query strings and signed tokens. Torrent/magnet URLs need an external streaming server providing HTTP(S).
 
 ## Controls
 
@@ -32,7 +32,7 @@ Preferred audio and subtitle languages persist independently. With **Prefer forc
 
 ## Skip Intro limitations
 
-An external stream URL often has no content ID or episode. Chapter detection works without IDs; network lookup requires metadata supplied by the deep link or entered in Info. Coverage depends on AniSkip/TheIntroDB; this is not audio-based intro recognition. MAL IDs identify individual seasons; use the correct season ID and episode numbering. Metadata queries send the entered ID/episode/duration to the respective public service; the video URL is not sent.
+Native Stremio Infuse links identify the series/movie and episode through their x-success detail route. Kairo now extracts these automatically (including IMDb, Kitsu and MAL video IDs). Explicit metadata still takes priority. Plain SxxExx filenames can resolve through an exact, unique Cinemeta title match. AniZip maps TV seasons/episodes to MAL-local episode numbers, including split cours; ARM supplies candidate MAL IDs when one IMDb series spans multiple entries. No manual Anime switch is required. AniSkip and TheIntroDB v3 supply intro/recap/credits timestamps; named file chapters remain the offline fallback. Missing or ambiguous identities and missing community timestamps cannot produce reliable skips. This is not audio-based intro recognition. Only media IDs, episode numbers, duration and, for filename lookup, the extracted show title go to metadata services; stream URLs/tokens are not sent. Info retains optional corrections and independent automatic skip toggles.
 
 ## Build
 

@@ -26,8 +26,8 @@ struct PlayerScreen: View {
     @State private var hudDeadline = Date.distantPast
     @State private var volume = MPVolumeView(frame: .zero)
     @State private var contentID = ""
-    @State private var season = "1"
-    @State private var episode = "1"
+    @State private var season = ""
+    @State private var episode = ""
     @State private var anime = false
     @State private var lookupRevision = 0
     @State private var autoSkipped: Set<String> = []
@@ -74,8 +74,11 @@ struct PlayerScreen: View {
                         showHUD("\(gestureSide ? "Helligkeit" : "Lautstärke") \(Int(level * 100)) %")
                         touch()
                     }.onEnded { _ in gestureStart = nil; touch() })
-                SystemVolumeView(volume: volume).frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
+                // Keep the system volume bridge attached, but clip its native
+                // slider completely. iOS 26 gives even tiny sliders glass chrome.
+                SystemVolumeView(volume: volume).frame(width: 1, height: 1).allowsHitTesting(false).accessibilityHidden(true)
                 if state.buffering && state.error == nil { ProgressView().tint(.white).scaleEffect(1.3).allowsHitTesting(false) }
+                if controls || hud != nil || state.currentSegment != nil || closing {
                 HarborGlassGroup {
                     ZStack {
                         if controls { overlay(wide: geometry.size.width > 600).transition(.opacity).allowsHitTesting(panel == nil).accessibilityHidden(panel != nil) }
@@ -89,6 +92,7 @@ struct PlayerScreen: View {
                         if closing { ProgressView("Schließen …").padding(20).harborGlass(radius: 20) }
                     }
                 }.zIndex(1)
+                }
                 // Menus are a separate glass layer, so toolbar glass cannot merge
                 // with them or draw its controls above the menu's text.
                 if let selection = panel {
@@ -113,7 +117,7 @@ struct PlayerScreen: View {
         .onAppear {
             originalBrightness = UIScreen.main.brightness
             UIApplication.shared.isIdleTimerDisabled = true
-            contentID = request.contentID; season = String(request.season ?? 1); episode = String(request.episode ?? 1); anime = request.isAnime
+            contentID = request.contentID; season = request.season.map(String.init) ?? ""; episode = request.episode.map(String.init) ?? ""; anime = request.isAnime
         }
         .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false; if let originalBrightness { UIScreen.main.brightness = originalBrightness } }
         .onChange(of: scenePhase) { _, value in if value != .active { state.controller?.property("pause", "yes") } }
@@ -259,13 +263,14 @@ struct PlayerScreen: View {
         case .metadata:
             Form {
                 Section("Intro-Erkennung") {
-                    TextField("IMDb tt… / mal:… / kitsu:…", text: $contentID).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Text("Stremio-Metadaten und Dateinamen werden automatisch erkannt.").font(.footnote).foregroundStyle(.secondary)
+                    TextField("Medien-ID (automatisch erkannt)", text: $contentID).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("detectedContentID")
                     TextField("Staffel", text: $season).keyboardType(.numberPad)
                     TextField("Episode", text: $episode).keyboardType(.numberPad)
-                    Toggle("Anime", isOn: $anime)
+                    Text("Anime-Zuordnung über AniZip/AniSkip erfolgt automatisch.").font(.footnote).foregroundStyle(.secondary)
                     Button("Zeiten suchen") { lookupRevision += 1 }
                     Text(state.skipStatus).font(.footnote).foregroundStyle(.secondary)
-                    Text("MyAnimeList-IDs gelten pro Anime-Staffel. Die Episodennummer muss zur gewählten ID passen.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Die Felder dienen nur als optionale Korrektur. Ohne verfügbare Zeitmarken erscheint kein Skip-Button.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Automatisch überspringen") {
                     Toggle("Intro", isOn: $autoSkipIntro); Toggle("Rückblick", isOn: $autoSkipRecap); Toggle("Abspann", isOn: $autoSkipOutro)
@@ -308,11 +313,18 @@ struct PlayerScreen: View {
     private func lookup() async {
         guard state.duration > 0 else { return }
         state.segments = IntroSkipService.merge([IntroSkipService.chapterSegments(state.chapters, duration: state.duration)], duration: state.duration)
+        var identity = request
+        identity.contentID = contentID; identity.season = Int(season); identity.episode = Int(episode)
+        identity = await IntroSkipService.identify(identity)
+        guard !Task.isCancelled else { return }
+        contentID = identity.contentID; season = identity.season.map(String.init) ?? ""; episode = identity.episode.map(String.init) ?? ""
         state.skipStatus = "Suche in AniSkip, TheIntroDB und Kapiteln …"
-        let values = await IntroSkipService.segments(contentID: contentID, season: Int(season), episode: Int(episode), duration: state.duration, isAnime: anime, chapters: state.chapters)
+        let values = await IntroSkipService.segments(contentID: contentID, season: Int(season), episode: Int(episode), duration: state.duration, isAnime: anime, chapters: state.chapters) { partial in
+            if !Task.isCancelled { state.segments = partial }
+        }
         guard !Task.isCancelled else { return }
         state.segments = values
-        state.skipStatus = values.isEmpty ? "Keine Zeiten gefunden. Medien-ID und Episode prüfen; nicht jede Folge ist erfasst." : "\(values.count) Abschnitte gefunden. Der Skip-Button erscheint im passenden Abschnitt."
+        state.skipStatus = values.isEmpty ? (contentID.isEmpty ? "Stremio hat keine Medien-ID übergeben und der Dateiname ist nicht eindeutig. Kapitel werden weiterhin geprüft." : "Für diese Folge sind aktuell keine passenden Zeitmarken verfügbar oder der Dienst ist nicht erreichbar.") : "\(values.count) Abschnitte gefunden. Der Skip-Button erscheint im passenden Abschnitt."
     }
     private func shouldAutoSkip(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoSkipIntro; case .recap: return autoSkipRecap; case .outro: return autoSkipOutro } }
     private func touch() { lastInteraction = Date() }
@@ -368,6 +380,14 @@ struct PlayerScreen: View {
 
 private struct SystemVolumeView: UIViewRepresentable {
     let volume: MPVolumeView
-    func makeUIView(context: Context) -> MPVolumeView { volume.showsRouteButton = false; return volume }
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.clipsToBounds = true
+        container.isUserInteractionEnabled = false
+        volume.showsRouteButton = false
+        volume.frame = CGRect(x: -1000, y: -1000, width: 160, height: 44)
+        container.addSubview(volume)
+        return container
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }

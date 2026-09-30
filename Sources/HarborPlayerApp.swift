@@ -20,7 +20,7 @@ struct HarborPlayerApp: App {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
                         Image(systemName: "play.rectangle.fill").font(.system(size: 64)).foregroundStyle(.mint).padding(.top, 40)
-                        Text("Harbor Player").font(.largeTitle.bold())
+                        Text("Kairo Player").font(.largeTitle.bold())
                         Text("Dein Stream. Dein Bild.").font(.title2).foregroundStyle(.secondary)
                         TextField("https:// …", text: $address).textContentType(.URL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16)).accessibilityIdentifier("streamURL")
                         Button { openText() } label: { Label("Stream abspielen", systemImage: "play.fill").frame(maxWidth: .infinity).padding(8) }.buttonStyle(.borderedProminent).tint(.mint).accessibilityIdentifier("openStream")
@@ -34,10 +34,10 @@ struct HarborPlayerApp: App {
                         #endif
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Mit Stremio verbinden", systemImage: "link").font(.headline)
-                            Text("In der Stremio-App als externen Player „Infuse“ auswählen. Harbor übernimmt die gespeicherte Position und gibt sie beim Schließen an Stremio zurück, wenn deine Stremio-Version diese Daten übergibt. Infuse selbst darf nicht parallel installiert sein, da beide Apps dieselben Links öffnen.")
+                            Text("In der Stremio-App als externen Player „Infuse“ auswählen. Kairo übernimmt die gespeicherte Position und gibt sie beim Schließen an Stremio zurück, wenn deine Stremio-Version diese Daten übergibt. Infuse selbst darf nicht parallel installiert sein, da beide Apps dieselben Links öffnen.")
                             Text("VLC- und Outplayer-Links funktionieren weiterhin, übertragen von Stremio aber keine Abspielposition. Für die Synchronisierung bitte Infuse auswählen.")
                             Text("Falls ein HTTP-Stream als HTTPS geöffnet wird: im Player-Menü auf HTTP wechseln. Alternativ die originale Stream-URL hier einfügen.")
-                            Text("Intro-Erkennung benötigt Kapitel oder eine Medien-ID und Episode. Diese kannst du während der Wiedergabe im Info-Menü ergänzen.")
+                            Text("Intro und Rückblick werden über Stremio-Metadaten, eindeutige Episoden-Dateinamen und Kapitel automatisch gesucht. Der Skip-Button erscheint, sobald passende Zeitmarken verfügbar sind.")
                         }.font(.subheadline).foregroundStyle(.secondary)
                         Text("Anime4K • MKV • ASS-Untertitel").font(.caption).foregroundStyle(.mint)
                     }.padding(28).frame(maxWidth: 650)

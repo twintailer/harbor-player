@@ -83,6 +83,11 @@ final class PlayerUITests: XCTestCase {
         timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)).tap()
         waitUntil("Timeline seeks to 60 percent") { abs(self.seconds(clock) - 36) <= 1 }
         capture("Liquid Glass final player")
+        app.buttons["Medien und Intro-Erkennung"].tap()
+        let identity = app.textFields["detectedContentID"]
+        XCTAssertTrue(identity.waitForExistence(timeout: 5))
+        XCTAssertEqual(identity.value as? String, "tt123", "Stremio metadata is inferred without input")
+        app.buttons["Fertig"].tap()
         let finalPosition = seconds(clock)
         app.buttons["Player schließen"].tap()
         XCTAssertTrue(app.textFields["streamURL"].waitForExistence(timeout: 15))
@@ -96,6 +101,34 @@ final class PlayerUITests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(progress - finalPosition), 1)
         XCTAssertEqual(callback.queryItems?.first { $0.name == "lastPlayedUrl" }?.value, "http://127.0.0.1:8765/languages.mkv")
         capture("Native Stremio progress callback")
+    }
+    func testChapterSkipAndCleanVideo() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "2", "-autoSkipRecap", "NO", "-autoSkipIntro", "NO"]
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/skip-chapters.mkv"), .init(name: "position", value: "2")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launch()
+        let recap = app.buttons["Skip Recap"]
+        XCTAssertTrue(recap.waitForExistence(timeout: 30), "Chapters work without entering any media identity")
+        recap.tap()
+        let intro = app.buttons["Skip Intro"]
+        XCTAssertTrue(intro.waitForExistence(timeout: 10))
+        intro.tap()
+        let clock = app.staticTexts["playbackClock"]
+        waitUntil("Intro skip seeks to chapter end") { self.seconds(clock) >= 20 }
+        capture("Intro and recap skipped without input")
+        waitUntil("Controls disappear completely") { !app.buttons["centerPlayPause"].exists }
+        capture("Clean video with all controls hidden")
+        app.terminate()
+
+        app.launchArguments = ["-controlsHideSeconds", "30", "-autoSkipRecap", "YES", "-autoSkipIntro", "YES"]
+        app.launch()
+        waitUntil("Automatic recap and intro skipping") { self.seconds(app.staticTexts["playbackClock"]) >= 20 }
+        XCTAssertLessThan(seconds(app.staticTexts["playbackClock"]), 30)
+        capture("Automatic intro and recap skipping")
+        app.terminate()
     }
     private func seconds(_ clock: XCUIElement) -> Int {
         guard clock.exists else { return -1 }
