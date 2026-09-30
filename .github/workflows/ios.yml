@@ -3,6 +3,16 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - 'Sources/**'
+      - 'Tests/UI/**'
+      - 'Tests/Fixtures/**'
+      - 'Tests/LogicTests.swift'
+      - 'Tests/IntroLookupTests.swift'
+      - 'Resources/**'
+      - 'Assets.xcassets/**'
+      - 'project.yml'
+      - '.github/workflows/ios.yml'
 permissions:
   contents: read
 jobs:

@@ -2,6 +2,7 @@ build*/
 spm/
 *.xcodeproj/
 Info.plist
+TVInfo.plist
 artifacts/
 *.ipa
 .DS_Store

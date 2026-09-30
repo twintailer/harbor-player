@@ -57,7 +57,73 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.harbor.player.uitests
         GENERATE_INFOPLIST_FILE: YES
+  KairoTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "27.0"
+    sources:
+      - TVSources
+      - TVAssets.xcassets
+      - Sources/PlayerEngine.swift
+      - Sources/PlaybackOrientation.swift
+      - Sources/PlaybackRequest.swift
+      - Sources/PlaybackReturn.swift
+      - Sources/PlaybackTypes.swift
+      - Sources/TrackPreferences.swift
+      - Sources/SubtitleSettings.swift
+      - Sources/LanguagePreferencesView.swift
+      - Sources/IntroSkipService.swift
+      - Sources/FontStore.swift
+      - path: Resources/Anime4K
+        type: folder
+        buildPhase: resources
+      - path: Resources/Fonts
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: MPVKit
+        product: MPVKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.kairo.player.tvos
+        TARGETED_DEVICE_FAMILY: "3"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        ENABLE_BITCODE: NO
+    info:
+      path: TVInfo.plist
+      properties:
+        CFBundleDisplayName: Kairo Player
+        CFBundleShortVersionString: "1.3.0"
+        CFBundleVersion: "1"
+        UIUserInterfaceStyle: Dark
+        UIRequiredDeviceCapabilities: [arm64]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Streams von deinem Stremio-Server im lokalen Netzwerk abspielen.
+        CFBundleURLTypes:
+          - CFBundleURLName: app.kairo.player.tvos
+            CFBundleURLSchemes: [kairoplayer, harborplayer, infuse, outplayer, vlc-x-callback]
+  KairoTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "27.0"
+    sources: Tests/TVUI
+    dependencies:
+      - target: KairoTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.kairo.player.tvos.uitests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
+  KairoTV:
+    build:
+      targets:
+        KairoTV: all
+    test:
+      targets:
+        - KairoTVUITests
   HarborPlayer:
     build:
       targets:

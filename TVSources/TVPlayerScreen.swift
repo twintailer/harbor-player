@@ -1,0 +1,225 @@
+import SwiftUI
+import AVFoundation
+
+struct TVPlayerScreen: View {
+    @State var request: PlaybackRequest
+    @StateObject private var state = PlayerState()
+    @EnvironmentObject private var playbackReturn: PlaybackReturn
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var controls = true
+    @State private var interaction = Date()
+    @State private var panel: Panel?
+    @State private var detail: Detail?
+    @State private var closing = false
+    @State private var replacing = false
+    @State private var preset = "off"
+    @State private var style = SubtitleSettings.load()
+    @State private var skipped: Set<String> = []
+    @State private var identity: PlaybackRequest?
+    @State private var lookupRevision = 0
+    @FocusState private var focus: Control?
+    @AppStorage("seekSeconds") private var seekSeconds = 15
+    @AppStorage("controlsHideSeconds") private var hideSeconds = 6.0
+    @AppStorage("autoSkipIntro") private var autoIntro = false
+    @AppStorage("autoSkipRecap") private var autoRecap = false
+    @AppStorage("autoSkipOutro") private var autoOutro = false
+    @AppStorage("preferredAudio") private var audio = TrackPreferences.systemLanguage
+    @AppStorage("preferredSubtitles") private var subtitles = TrackPreferences.systemLanguage
+    @AppStorage("preferForced") private var forced = true
+    private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    enum Control: Hashable { case screen, center, close, info, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
+    enum Panel: String, Identifiable { case speed, anime, audio, subtitles; var id: String { rawValue } }
+    enum Detail: String, Identifiable { case preferences, subtitles, metadata; var id: String { rawValue } }
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VideoSurface(request: request, state: state).id(request.id).ignoresSafeArea().allowsHitTesting(false)
+            if !controls && panel == nil {
+                Button { reveal() } label: { Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).focusEffectDisabled().focused($focus, equals: .screen).accessibilityLabel("Bedienleiste öffnen")
+                    .onMoveCommand { direction in
+                        if direction == .left { state.skip(-Double(seekSeconds)) }
+                        else if direction == .right { state.skip(Double(seekSeconds)) }
+                        else { reveal() }
+                        touch()
+                    }
+            }
+            if controls { overlay }
+            if state.buffering && state.error == nil { ProgressView().scaleEffect(1.5).allowsHitTesting(false) }
+            if let segment = state.currentSegment, panel == nil, detail == nil {
+                VStack { Spacer(); HStack { Spacer(); Button(segment.label) { state.seek(segment.end); touch() }
+                    .focused($focus, equals: .skip).accessibilityIdentifier("skipSegment") }.padding(.bottom, controls ? 250 : 70) }.padding(.horizontal, 70)
+            }
+            if closing { ProgressView("Schließen …").padding(30).tvGlass() }
+        }.foregroundStyle(.white).tint(.white)
+            .onPlayPauseCommand { state.toggle(); reveal() }
+            .onExitCommand {
+                if panel != nil { panel = nil; reveal() }
+                else if controls { controls = false; focus = .screen }
+                else { close() }
+            }
+            .onChange(of: focus) { _, _ in touch() }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { state.controller?.property("pause", "yes") } }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in state.controller?.property("pause", "yes") }
+            .onReceive(NotificationCenter.default.publisher(for: .harborReplacePlayback)) { _ in replacing = true; close() }
+            .onChange(of: style) { _, value in state.controller?.style(value) }
+            .onChange(of: audio) { _, _ in state.controller?.applyLanguagePreferences() }
+            .onChange(of: subtitles) { _, _ in state.controller?.applyLanguagePreferences() }
+            .onChange(of: forced) { _, _ in state.controller?.applyLanguagePreferences() }
+            .onAppear { focus = .play; UIApplication.shared.isIdleTimerDisabled = true }
+            .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
+            .onReceive(pulse) { _ in
+                if controls && panel == nil && detail == nil && !state.paused && !state.buffering && state.duration > 0 && Date().timeIntervalSince(interaction) > hideSeconds {
+                    controls = false; focus = .screen
+                }
+                if let segment = state.currentSegment, !skipped.contains(segment.id), automatic(segment) {
+                    skipped.insert(segment.id); state.seek(segment.end)
+                }
+            }
+            .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
+            .sheet(item: $panel, onDismiss: { reveal() }) { menu($0) }
+            .sheet(item: $detail, onDismiss: { reveal() }) { selection in
+                switch selection {
+                case .preferences: TVPreferences()
+                case .subtitles: TVSubtitleSettings(style: $style, controller: state.controller)
+                case .metadata: metadata
+                }
+            }
+            .alert("Wiedergabe", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
+                Button("Schließen") { state.error = nil; close() }
+            } message: { Text(state.error ?? "") }
+    }
+    private var overlay: some View {
+        ZStack {
+            LinearGradient(colors: [.black.opacity(0.3), .clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom).ignoresSafeArea().allowsHitTesting(false)
+            Button { state.toggle(); touch() } label: { Image(systemName: state.paused ? "play.fill" : "pause.fill").font(.system(size: 72)).frame(width: 150, height: 130) }
+                .buttonStyle(.plain).focused($focus, equals: .center).accessibilityIdentifier("centerPlayPause").accessibilityLabel(state.paused ? "Wiedergabe" : "Pause")
+            VStack {
+                HStack(spacing: 20) {
+                    icon("xmark", "Player schließen", .close) { close() }
+                    icon("info", "Medien und Intro-Erkennung", .info) { detail = .metadata }
+                    Spacer()
+                }.focusSection()
+                Spacer()
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let value = identity ?? Optional(request), let season = value.season, let episode = value.episode { Text("STAFFEL \(season) · EPISODE \(episode)").font(.caption).foregroundStyle(.secondary) }
+                            Text(request.title).font(.title2.bold()).lineLimit(1)
+                        }
+                        Spacer()
+                        if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout) }
+                    }
+                    Button { touch() } label: {
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(.white.opacity(0.2))
+                                Capsule().fill(.white).frame(width: geometry.size.width * min(1, max(0, state.duration > 0 ? state.position / state.duration : 0)))
+                            }.frame(height: 6).frame(maxHeight: .infinity)
+                        }.frame(height: 35)
+                    }.buttonStyle(.plain).focused($focus, equals: .timeline).accessibilityLabel("Zeitleiste").accessibilityIdentifier("playbackTimeline")
+                        .accessibilityValue(clock(state.position))
+                        .onMoveCommand { direction in
+                            if direction == .left { state.skip(-Double(seekSeconds)) }
+                            if direction == .right { state.skip(Double(seekSeconds)) }
+                            touch()
+                        }
+                    HStack { Text(clock(state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text("−" + clock(max(0, state.duration - state.position))) }.font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    HStack(spacing: 20) {
+                        HStack(spacing: 12) {
+                            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
+                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { state.toggle(); touch() }
+                            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
+                        }.padding(10).tvGlass().focusSection()
+                        Spacer()
+                        HStack(spacing: 12) {
+                            Button(String(format: "%g×", state.speed)) { panel = .speed; touch() }.focused($focus, equals: .speed).accessibilityLabel("Playback speed")
+                            icon("sparkles.tv", "Anime4K", .anime) { panel = .anime; touch() }
+                            icon("waveform", "Audio language", .audio) { panel = .audio; touch() }
+                            icon("captions.bubble", "Subtitle language", .subtitles) { panel = .subtitles; touch() }
+                            icon("gearshape", "Einstellungen", .settings) { detail = .preferences; touch() }
+                        }.padding(10).tvGlass().focusSection()
+                    }
+                }.padding(.bottom, 15)
+            }.padding(70)
+        }
+    }
+    private func icon(_ symbol: String, _ label: String, _ control: Control, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 30)).frame(width: 65, height: 45) }
+            .focused($focus, equals: control).accessibilityLabel(label)
+    }
+    private func menu(_ selection: Panel) -> some View {
+        TVSheet(title: panelTitle(selection)) {
+            switch selection {
+            case .speed:
+                ForEach([0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3], id: \.self) { speed in
+                    choice(String(format: "%g×", speed), selected: abs(state.speed - speed) < 0.01) { state.rate(speed); panel = nil }
+                }
+            case .anime:
+                ForEach(["off", "fast", "A", "B", "C", "hq"], id: \.self) { value in
+                    choice(animeName(value), selected: preset == value) { preset = value; state.controller?.anime(value) }
+                }
+            case .audio:
+                tracks("audio")
+                Button("Automatische Sprachauswahl") { state.controller?.applyLanguagePreferences() }
+            case .subtitles:
+                choice("Aus", selected: !state.tracks.contains { $0.type == "sub" && $0.selected }) { state.controller?.selectTrack("sub", id: -1) }
+                tracks("sub")
+                Button("Automatische Sprachauswahl") { state.controller?.applyLanguagePreferences() }
+                Button("Untertitel gestalten") { panel = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { detail = .subtitles } }
+                    .accessibilityIdentifier("openSubtitleStyle")
+            }
+        }
+    }
+    @ViewBuilder private func tracks(_ type: String) -> some View {
+        if state.tracks.filter({ $0.type == type }).isEmpty { Text("Keine Spuren verfügbar").foregroundStyle(.secondary) }
+        ForEach(state.tracks.filter { $0.type == type }) { track in
+            choice([Locale.current.localizedString(forLanguageCode: TrackPreferences.normalized(track.lang)) ?? track.lang, track.title, track.codec.uppercased(), TrackPreferences.isForced(track) ? "Forced" : ""].filter { !$0.isEmpty }.joined(separator: " · "), selected: track.selected) {
+                state.controller?.selectTrack(type, id: track.id)
+            }.accessibilityIdentifier("track-\(type)-\(track.id)").accessibilityValue(track.selected ? "selected" : "unselected")
+        }
+    }
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { HStack { Text(title); Spacer(); if selected { Image(systemName: "checkmark") } }.frame(maxWidth: .infinity, alignment: .leading) }
+    }
+    private var metadata: some View {
+        TVSheet(title: "Medien & Skip Intro") {
+            Text((identity ?? request).contentID.isEmpty ? "Keine eindeutige Medien-ID vorhanden" : (identity ?? request).contentID).accessibilityIdentifier("detectedContentID")
+            Text(state.skipStatus).foregroundStyle(.secondary)
+            Button("Zeiten erneut suchen") { lookupRevision += 1 }
+            Toggle("Intro automatisch überspringen", isOn: $autoIntro)
+            Toggle("Recap automatisch überspringen", isOn: $autoRecap)
+            Toggle("Abspann automatisch überspringen", isOn: $autoOutro)
+            Text(request.successCallback == nil ? "Stremio hat keinen Rückkanal übergeben." : "Die Position wird beim Schließen an Stremio übergeben.").foregroundStyle(.secondary)
+        }
+    }
+    private func lookup() async {
+        guard state.duration > 0 else { return }
+        state.segments = IntroSkipService.chapterSegments(state.chapters, duration: state.duration)
+        state.skipStatus = "Suche nach Intro- und Recap-Zeiten …"
+        let value = await IntroSkipService.identify(request)
+        guard !Task.isCancelled else { return }; identity = value
+        let segments = await IntroSkipService.segments(contentID: value.contentID, season: value.season, episode: value.episode, duration: state.duration, isAnime: value.isAnime, chapters: state.chapters) { partial in
+            if !Task.isCancelled { state.segments = partial }
+        }
+        guard !Task.isCancelled else { return }
+        state.segments = segments
+        state.skipStatus = segments.isEmpty ? "Keine passenden Zeitmarken verfügbar oder Dienst nicht erreichbar." : "\(segments.count) Abschnitte gefunden."
+    }
+    private func automatic(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoIntro; case .recap: return autoRecap; case .outro: return autoOutro } }
+    private func touch() { interaction = Date() }
+    private func reveal() { controls = true; focus = .play; touch() }
+    private func close() {
+        guard !closing else { return }; closing = true
+        if let controller = state.controller {
+            controller.finishPlayback { position, loaded in
+                if !replacing { playbackReturn.prepare(request, position: position, loaded: loaded) }
+                dismiss()
+            }
+        } else { dismiss() }
+    }
+    private func clock(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
+    private func panelTitle(_ value: Panel) -> String { switch value { case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }
+    private func animeName(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
+}

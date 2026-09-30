@@ -1,0 +1,88 @@
+name: Build Kairo Apple TV IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'TVSources/**'
+      - 'TVAssets.xcassets/**'
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'Resources/**'
+      - 'project.yml'
+      - '.github/workflows/tvos.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.event.repository.private == false
+    # Standard public-preview runner. Never use the paid xlarge variant.
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tvOS 27 SDK and run shared logic tests
+        run: |
+          xcodebuild -version
+          SDK=$(xcrun --sdk appletvos --show-sdk-version)
+          test "${SDK%%.*}" -ge 27
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/SubtitleSettings.swift Sources/PlaybackTypes.swift Sources/TrackPreferences.swift Sources/IntroSkipService.swift Tests/LogicTests.swift -o /tmp/logic-tests
+          /tmp/logic-tests
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift Sources/IntroSkipService.swift Tests/IntroLookupTests.swift -o /tmp/intro-tests
+          /tmp/intro-tests
+      - name: Generate project and boot Apple TV
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "tvOS-27" in k for v in vs if "Apple TV" in v["name"]))')
+          echo "KAIRO_TV_SIMULATOR=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+      - name: Resolve packages
+        run: |
+          for attempt in 1 2 3; do
+            if xcodebuild -resolvePackageDependencies -project HarborPlayer.xcodeproj -scheme KairoTV -clonedSourcePackagesDirPath spm; then exit 0; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+          done
+      - name: Build unsigned Apple TV application
+        run: |
+          set -o pipefail
+          xcodebuild -project HarborPlayer.xcodeproj -scheme KairoTV -configuration Release -sdk appletvos -destination 'generic/platform=tvOS' -derivedDataPath build-tvos -clonedSourcePackagesDirPath spm CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build 2>&1 | tee tv-build.log | tail -90
+      - name: Package and verify tvOS IPA
+        run: |
+          mkdir -p TVPayload/Payload
+          cp -R build-tvos/Build/Products/Release-appletvos/KairoTV.app TVPayload/Payload/
+          test -f TVPayload/Payload/KairoTV.app/Anime4K/Anime4K_Upscale_DTD_x2.glsl
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' TVPayload/Payload/KairoTV.app/Info.plist
+          (cd TVPayload && zip -qr ../KairoPlayer_tvOS27_1.3.0_unsigned.ipa Payload)
+          shasum -a 256 KairoPlayer_tvOS27_1.3.0_unsigned.ipa > TV-SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KairoPlayer-AppleTV-unsigned
+          path: |
+            KairoPlayer_tvOS27_1.3.0_unsigned.ipa
+            TV-SHA256SUMS
+          retention-days: 7
+      - name: Test playback with Siri Remote on tvOS 27
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          python3 Tests/fixture_server.py >/tmp/fixture-server.log 2>&1 &
+          xcrun simctl bootstatus "$KAIRO_TV_SIMULATOR" -b
+          xcodebuild -project HarborPlayer.xcodeproj -scheme KairoTV -destination "platform=tvOS Simulator,id=$KAIRO_TV_SIMULATOR" -derivedDataPath build-tv-simulator -clonedSourcePackagesDirPath spm -resultBundlePath tv-ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee tv-ui-tests.log | tail -90
+      - name: Export Apple TV screenshots
+        if: always()
+        run: |
+          if [ -d tv-ui-tests.xcresult ]; then xcrun xcresulttool export attachments --path tv-ui-tests.xcresult --output-path tv-screenshots; fi
+          find "$HOME/Library/Developer/CoreSimulator/Devices" -path '*/tmp/harbor-mpv.log' -exec cp {} tv-mpv.log \;
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AppleTV-tests
+          path: |
+            tv-build.log
+            tv-ui-tests.log
+            tv-mpv.log
+            tv-screenshots/*.png
+            tv-screenshots/*.txt
+            tv-screenshots/manifest.json
+          retention-days: 7
