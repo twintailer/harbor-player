@@ -34,6 +34,17 @@ final class TVPlayerUITests: XCTestCase {
         capture("Apple TV speed menu")
         remote.press(.menu)
         wait("Menu restores player focus") { app.buttons["Play-Pause"].hasFocus }
+        for _ in 0..<3 { remote.press(.right) }
+        XCTAssertTrue(app.buttons["Anime4K"].hasFocus)
+        remote.press(.select)
+        wait("Anime4K menu opens") { app.buttons["anime-off"].hasFocus }
+        remote.press(.down)
+        XCTAssertTrue(app.buttons["anime-fast"].hasFocus)
+        remote.press(.select)
+        wait("Anime4K enabled on TV") { app.descendants(matching: .any)["animeActive"].exists }
+        remote.press(.menu)
+        wait("Shader menu restores focus") { app.buttons["Play-Pause"].hasFocus }
+        capture("Apple TV Anime4K active")
         for _ in 0..<4 { remote.press(.right) }
         XCTAssertTrue(app.buttons["Audio language"].hasFocus)
         remote.press(.select)

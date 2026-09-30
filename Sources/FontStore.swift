@@ -3,7 +3,11 @@ import CoreText
 
 enum FontStore {
     static var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fonts")
+        #if os(tvOS)
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Fonts")
+        #else
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Fonts")
+        #endif
     }
     static func prepare() {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

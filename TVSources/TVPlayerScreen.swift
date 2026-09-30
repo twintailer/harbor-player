@@ -117,7 +117,7 @@ struct TVPlayerScreen: View {
                             Text(request.title).font(.title2.bold()).lineLimit(1)
                         }
                         Spacer()
-                        if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout) }
+                        if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout).accessibilityIdentifier("animeActive") }
                     }
                     Button { touch() } label: {
                         GeometryReader { geometry in
@@ -166,7 +166,7 @@ struct TVPlayerScreen: View {
                 }
             case .anime:
                 ForEach(["off", "fast", "A", "B", "C", "hq"], id: \.self) { value in
-                    choice(animeName(value), selected: preset == value) { preset = value; state.controller?.anime(value) }
+                    choice(animeName(value), selected: preset == value) { preset = value; state.controller?.anime(value) }.accessibilityIdentifier("anime-" + value)
                 }
             case .audio:
                 tracks("audio")

@@ -8,7 +8,12 @@ import SwiftUI
     @State private var error: String?
     @State private var preferences = false
     @State private var consumedTestLink = false
-    init() { FontStore.prepare() }
+    init() {
+        FontStore.prepare()
+        #if DEBUG
+        assert(FileManager.default.fileExists(atPath: FontStore.directory.appendingPathComponent("Inter.ttf").path), "Bundled subtitle font must be writable in the tvOS cache")
+        #endif
+    }
     var body: some Scene {
         WindowGroup {
             NavigationStack {
