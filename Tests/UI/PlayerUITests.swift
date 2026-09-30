@@ -110,23 +110,29 @@ final class PlayerUITests: XCTestCase {
         link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/skip-chapters.mkv"), .init(name: "position", value: "2")]
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
         app.launch()
+        let center = app.buttons["centerPlayPause"]
+        XCTAssertTrue(center.waitForExistence(timeout: 30))
+        let clock = app.staticTexts["playbackClock"]
+        waitUntil("Chapter fixture starts") { self.seconds(clock) > 0 }
+        center.tap()
+        waitUntil("Pause chapter fixture") { center.label == "Wiedergabe" }
         let recap = app.buttons["Skip Recap"]
         XCTAssertTrue(recap.waitForExistence(timeout: 30), "Chapters work without entering any media identity")
         recap.tap()
         let intro = app.buttons["Skip Intro"]
         XCTAssertTrue(intro.waitForExistence(timeout: 10))
         intro.tap()
-        let clock = app.staticTexts["playbackClock"]
-        waitUntil("Intro skip seeks to chapter end") { self.seconds(clock) >= 20 }
+        waitUntil("Intro skip seeks to chapter end") { abs(self.seconds(clock) - 30) <= 1 }
         capture("Intro and recap skipped without input")
+        center.tap()
         waitUntil("Controls disappear completely") { !app.buttons["centerPlayPause"].exists }
         capture("Clean video with all controls hidden")
         app.terminate()
 
         app.launchArguments = ["-controlsHideSeconds", "30", "-autoSkipRecap", "YES", "-autoSkipIntro", "YES"]
         app.launch()
-        waitUntil("Automatic recap and intro skipping") { self.seconds(app.staticTexts["playbackClock"]) >= 20 }
-        XCTAssertLessThan(seconds(app.staticTexts["playbackClock"]), 30)
+        waitUntil("Automatic recap and intro skipping") { self.seconds(app.staticTexts["playbackClock"]) >= 30 }
+        XCTAssertLessThan(seconds(app.staticTexts["playbackClock"]), 40)
         capture("Automatic intro and recap skipping")
         app.terminate()
     }
