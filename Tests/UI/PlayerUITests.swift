@@ -10,6 +10,7 @@ final class PlayerUITests: XCTestCase {
         link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "x-success", value: "stremio:///detail/series/tt123/tt123:1:2")]
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
         app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launchEnvironment["HARBOR_TEST_META_URL"] = "http://127.0.0.1:8765"
         app.launch()
         let center = app.buttons["centerPlayPause"]
         XCTAssertTrue(center.waitForExistence(timeout: 30))
@@ -21,6 +22,9 @@ final class PlayerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(seconds(clock), 12, "The first playback position must honor Stremio resume")
         center.tap()
         waitUntil("Paused") { center.label == "Wiedergabe" }
+        waitUntil("Localized episode title includes season and episode") {
+            app.staticTexts["episodeTitle"].label == "Ein Testabenteuer – (1×2)"
+        }
         let start = seconds(clock)
         capture("Before double tap")
         let right = app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.42))

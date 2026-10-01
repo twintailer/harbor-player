@@ -100,7 +100,7 @@ struct TVPlayerScreen: View {
             .task(id: "\((identity ?? request).contentID):\((identity ?? request).season ?? 0):\((identity ?? request).episode ?? 0)") {
                 let value = identity ?? request
                 episodeTitle = nil
-                let title = await TVMetadataService.title(for: value, language: Locale.preferredLanguages.first ?? "en") { episodeTitle = $0 }
+                let title = await PlaybackMetadataService.title(for: value, language: Locale.preferredLanguages.first ?? "en") { episodeTitle = $0 }
                 if !Task.isCancelled { episodeTitle = title }
             }
             .sheet(item: $panel, onDismiss: restoreAfterMenu) { menu($0) }
@@ -127,7 +127,7 @@ struct TVPlayerScreen: View {
                 Spacer()
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(episodeTitle ?? TVMetadataService.fallback(identity ?? request)).font(.system(size: 24, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
+                        Text(episodeTitle ?? PlaybackMetadataService.fallback(identity ?? request)).font(.system(size: 24, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
                         Spacer()
                         if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout).accessibilityIdentifier("animeActive") }
                     }

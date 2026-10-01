@@ -30,6 +30,8 @@ struct PlayerScreen: View {
     @State private var episode = ""
     @State private var anime = false
     @State private var lookupRevision = 0
+    @State private var metadataIdentity: PlaybackRequest?
+    @State private var episodeTitle: String?
     @State private var autoSkipped: Set<String> = []
     @State private var externalSubtitle = ""
     @State private var importFont = false
@@ -140,6 +142,12 @@ struct PlayerScreen: View {
             if let segment = state.currentSegment, !autoSkipped.contains(segment.id), shouldAutoSkip(segment) { autoSkipped.insert(segment.id); state.seek(segment.end) }
         }
         .task(id: lookupKey) { await lookup() }
+        .task(id: "\((metadataIdentity ?? request).contentID):\((metadataIdentity ?? request).season ?? 0):\((metadataIdentity ?? request).episode ?? 0)") {
+            let identity = metadataIdentity ?? request
+            episodeTitle = nil
+            let title = await PlaybackMetadataService.title(for: identity, language: Locale.preferredLanguages.first ?? "en") { episodeTitle = $0 }
+            if !Task.isCancelled { episodeTitle = title }
+        }
         .alert("Wiedergabe", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
             Button("Erneut versuchen") { state.error = nil; restart(request.url) }
             Button("Schließen", role: .cancel) { state.error = nil }
@@ -164,8 +172,7 @@ struct PlayerScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 3) {
-                            if let season = request.season, let episode = request.episode { Text("STAFFEL \(season)  ·  EPISODE \(episode)").font(.caption.weight(.medium)).tracking(1.2).foregroundStyle(.white.opacity(0.65)) }
-                            Text(request.title.isEmpty ? "Harbor Player" : request.title).font(.system(size: wide ? 21 : 18, weight: .semibold)).lineLimit(1)
+                            Text(episodeTitle ?? PlaybackMetadataService.fallback(metadataIdentity ?? request)).font(.system(size: wide ? 21 : 18, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
                         }
                         Spacer(minLength: 12)
                         if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.8)) }
@@ -317,6 +324,7 @@ struct PlayerScreen: View {
         identity.contentID = contentID; identity.season = Int(season); identity.episode = Int(episode)
         identity = await IntroSkipService.identify(identity)
         guard !Task.isCancelled else { return }
+        metadataIdentity = identity
         contentID = identity.contentID; season = identity.season.map(String.init) ?? ""; episode = identity.episode.map(String.init) ?? ""
         state.skipStatus = "Suche in AniSkip, TheIntroDB und Kapiteln …"
         let values = await IntroSkipService.segments(contentID: contentID, season: Int(season), episode: Int(episode), duration: state.duration, isAnime: anime, chapters: state.chapters) { partial in

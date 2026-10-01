@@ -9,6 +9,7 @@ on:
       - 'Tests/Fixtures/**'
       - 'Tests/LogicTests.swift'
       - 'Tests/IntroLookupTests.swift'
+      - 'Tests/TVMetadataTests.swift'
       - 'Resources/**'
       - 'Assets.xcassets/**'
       - 'project.yml'
@@ -28,6 +29,8 @@ jobs:
           /tmp/logic-tests
           swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift Sources/IntroSkipService.swift Tests/IntroLookupTests.swift -o /tmp/intro-tests
           /tmp/intro-tests
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift Sources/PlaybackMetadataService.swift Tests/TVMetadataTests.swift -o /tmp/metadata-tests
+          /tmp/metadata-tests
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
@@ -54,13 +57,13 @@ jobs:
           test -f Payload/HarborPlayer.app/Anime4K/Anime4K_Upscale_DTD_x2.glsl
           test -f Payload/HarborPlayer.app/Fonts/Inter.ttf
           /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' Payload/HarborPlayer.app/Info.plist
-          zip -qr KairoPlayer_1.3.0_unsigned.ipa Payload
-          shasum -a 256 KairoPlayer_1.3.0_unsigned.ipa > SHA256SUMS
+          zip -qr KairoPlayer_1.3.1_unsigned.ipa Payload
+          shasum -a 256 KairoPlayer_1.3.1_unsigned.ipa > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: HarborPlayer-iPhone-unsigned
           path: |
-            KairoPlayer_1.3.0_unsigned.ipa
+            KairoPlayer_1.3.1_unsigned.ipa
             SHA256SUMS
           retention-days: 7
       - uses: actions/upload-artifact@v4

@@ -4,23 +4,23 @@ import Foundation
     @MainActor static func main() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MetadataFixture.self]
-        TVMetadataService.session = URLSession(configuration: config)
+        PlaybackMetadataService.session = URLSession(configuration: config)
         var request = PlaybackRequest(url: URL(string: "https://example.org/private.mkv?token=secret")!, title: "Pokemon.S01E44.German.DVDRip.mkv", contentID: "tt0168366", season: 1, episode: 44)
         var partial = ""
-        let localized = await TVMetadataService.title(for: request, language: "de-DE") { partial = $0 }
+        let localized = await PlaybackMetadataService.title(for: request, language: "de-DE") { partial = $0 }
         precondition(localized == "Die Paras Problematik – (1×44)")
         precondition(partial == "The Problem with Paras – (1×44)")
         request.contentID = "tt2"
-        let fallback = await TVMetadataService.title(for: request, language: "de-DE")
+        let fallback = await PlaybackMetadataService.title(for: request, language: "de-DE")
         precondition(fallback == "The Problem with Paras – (1×44)", "Provider failure falls back to the exact Cinemeta episode")
         request.episode = 999
-        let missing = await TVMetadataService.title(for: request, language: "de-DE")
+        let missing = await PlaybackMetadataService.title(for: request, language: "de-DE")
         precondition(missing == nil, "Never display another episode or the show title as an episode name")
         request.contentID = "mal:1"
-        let unsupported = await TVMetadataService.title(for: request, language: "de-DE")
+        let unsupported = await PlaybackMetadataService.title(for: request, language: "de-DE")
         precondition(unsupported == nil)
         request.episode = 44
-        precondition(TVMetadataService.fallback(request) == "Pokemon – (1×44)")
+        precondition(PlaybackMetadataService.fallback(request) == "Pokemon – (1×44)")
         print("Localized episode names, provider fallback, missing episodes and filename display tests passed")
     }
 }

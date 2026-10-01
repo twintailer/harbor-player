@@ -1,6 +1,6 @@
 import Foundation
 
-@MainActor enum TVMetadataService {
+@MainActor enum PlaybackMetadataService {
     static var session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 6

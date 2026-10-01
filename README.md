@@ -34,6 +34,8 @@ Preferred audio and subtitle languages persist independently. With **Prefer forc
 
 ## Skip Intro limitations
 
+iPhone and Apple TV show the episode name followed by season/episode, for example `Die Paras Problematik – (1×44)`, when metadata is available. Localized TMDB addon names are preferred, with Cinemeta as a fallback. Without a matching episode, the shortened filename remains visible. Metadata lookup runs independently of playback and sends only media identity/language, never stream URLs or tokens. Available translations and episode numbering can differ from your Stremio catalogue.
+
 Native Stremio Infuse links identify the series/movie and episode through their x-success detail route. Kairo now extracts these automatically (including IMDb, Kitsu and MAL video IDs). Explicit metadata still takes priority. Plain SxxExx filenames can resolve through an exact, unique Cinemeta title match. AniZip maps TV seasons/episodes to MAL-local episode numbers, including split cours; ARM supplies candidate MAL IDs when one IMDb series spans multiple entries. No manual Anime switch is required. AniSkip and TheIntroDB v3 supply intro/recap/credits timestamps; named file chapters remain the offline fallback. Missing or ambiguous identities and missing community timestamps cannot produce reliable skips. This is not audio-based intro recognition. Only media IDs, episode numbers, duration and, for filename lookup, the extracted show title go to metadata services; stream URLs/tokens are not sent. Info retains optional corrections and independent automatic skip toggles.
 
 ## Build

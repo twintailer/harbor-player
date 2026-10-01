@@ -30,7 +30,7 @@ jobs:
           /tmp/logic-tests
           swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift Sources/IntroSkipService.swift Tests/IntroLookupTests.swift -o /tmp/intro-tests
           /tmp/intro-tests
-          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift TVSources/TVMetadataService.swift Tests/TVMetadataTests.swift -o /tmp/tv-metadata-tests
+          swiftc -parse-as-library Sources/PlaybackRequest.swift Sources/PlaybackTypes.swift Sources/PlaybackMetadataService.swift Tests/TVMetadataTests.swift -o /tmp/tv-metadata-tests
           /tmp/tv-metadata-tests
       - name: Generate project and boot Apple TV
         run: |
