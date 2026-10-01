@@ -11,11 +11,22 @@ final class TVPlayerUITests: XCTestCase {
         link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "x-success", value: "stremio:///detail/series/tt123/tt123:1:2")]
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
         app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launchEnvironment["HARBOR_TEST_META_URL"] = "http://127.0.0.1:8765"
         app.launch()
         let clock = app.staticTexts["playbackClock"]
         wait("Playback resumes") { self.seconds(clock) >= 12 }
+        wait("Actual audio output initialized") {
+            let values = app.staticTexts["playbackDiagnostics"].label.split(separator: "|")
+            return values.count >= 3 && ["avfoundation", "audiounit"].contains(String(values[0])) && (Int(values[1]) ?? 0) > 0
+        }
+        wait("Network playback has a useful read-ahead buffer") {
+            let values = app.staticTexts["playbackDiagnostics"].label.split(separator: "|")
+            return values.count >= 3 && (Int(values[2]) ?? 0) >= 8
+        }
+        wait("Episode title replaces filename") { app.staticTexts["episodeTitle"].label == "Ein Testabenteuer – (1×2)" }
+        XCTAssertFalse(app.buttons["centerPlayPause"].exists)
         remote.press(.playPause)
-        wait("Remote pauses") { app.buttons["centerPlayPause"].label == "Wiedergabe" }
+        wait("Remote pauses") { app.buttons["Play-Pause"].value as? String == "paused" }
         XCTAssertTrue(app.buttons["Play-Pause"].hasFocus)
         let start = seconds(clock)
         remote.press(.right)
@@ -64,13 +75,13 @@ final class TVPlayerUITests: XCTestCase {
         assertVideoUnobscured()
         capture("Apple TV clean paused video")
         remote.press(.select)
-        wait("Select reveals paused controls") { app.staticTexts["playbackClock"].exists && app.buttons["centerPlayPause"].label == "Wiedergabe" }
+        wait("Select reveals paused controls") { app.staticTexts["playbackClock"].exists && app.buttons["Play-Pause"].value as? String == "paused" }
         remote.press(.menu)
         wait("Controls hide again") { !app.staticTexts["playbackClock"].exists }
         remote.press(.playPause)
-        wait("Remote resumes and reveals controls") { app.buttons["centerPlayPause"].label == "Pause" }
+        wait("Remote resumes and reveals controls") { app.buttons["Play-Pause"].value as? String == "playing" }
         remote.press(.playPause)
-        wait("Paused before returning") { app.buttons["centerPlayPause"].label == "Wiedergabe" }
+        wait("Paused before returning") { app.buttons["Play-Pause"].value as? String == "paused" }
         let position = seconds(clock)
         remote.press(.menu)
         remote.press(.menu)

@@ -19,7 +19,11 @@ Direct integration: `kairoplayer://play?url=<encoded-stream>&id=tt2560140&season
 - Back closes settings first, then hides playback controls, then closes the player and returns progress.
 - Volume buttons control the connected TV/receiver through the normal Apple TV configuration. Screen brightness is a television setting, not an iPhone-style swipe gesture.
 
-The glass layout has a central Play/Pause button, title, elapsed/remaining time, timeline, bottom-left playback/seek controls and bottom-right speed, Anime4K, audio, subtitles and preferences. Focus remains visible on remote-controlled buttons; hidden video controls add no glass overlay.
+The compact glass layout keeps Play/Pause in the bottom row, alongside backward/forward controls. Speed, Anime4K, audio, subtitles and preferences sit on the right. The episode title and season/episode appear above the buttons, with the timeline and elapsed/total time below. Focus remains visible on remote-controlled buttons; hidden video controls add no glass overlay.
+
+Version 1.3.1 prefers AVFoundation audio output for multichannel HDMI/TV/soundbar routes, with AudioUnit as a fallback. tvOS negotiates the audio channel layout; this does not force unsupported bitstream passthrough. VideoToolbox uses direct hardware surfaces instead of copying decoded frames to CPU memory. The network cache reads up to 60 seconds ahead within a 128 MiB limit and refills an eight-second runway before resuming, where the source allows it. A slow server or Wi-Fi connection can still run out of data. Info shows the actual audio output, sample rate, decoder and cached seconds for troubleshooting.
+
+Episode names are fetched using the detected media ID and episode, independently of playback and intro lookup. A public TMDB metadata addon supplies localized names when reachable; Cinemeta provides the fallback. If metadata is missing, the filename is shortened and season/episode remain visible. These requests send media identity/language only, not the playback URL or its tokens. Addon episode numbering and available translations can differ from your configured Stremio catalogue.
 
 ## Settings
 

@@ -13,6 +13,10 @@ final class PlayerState: ObservableObject {
     @Published var error: String?
     @Published var animeActive = false
     @Published var speed = 1.0
+    @Published var audioOutput = ""
+    @Published var audioSampleRate = 0.0
+    @Published var cacheAhead = 0.0
+    @Published var hardwareDecoder = ""
     @Published var segments: [SkipSegment] = []
     @Published var skipStatus = "Kapitel werden geladen …"
     weak var controller: PlayerController?
@@ -83,14 +87,33 @@ final class PlayerController: UIViewController {
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(mpv, "wid", MPV_FORMAT_INT64, &wid)
         mpv_set_option_string(mpv, "profile", "fast")
-        let options = ["vo": "gpu-next", "gpu-api": "vulkan", "gpu-context": "moltenvk",
+        var options = ["vo": "gpu-next", "gpu-api": "vulkan", "gpu-context": "moltenvk",
                        "hwdec": "videotoolbox-copy", "ao": "audiounit",
                        "vulkan-swap-mode": "fifo", "vd-lavc-threads": "4",
                        "keep-open": "yes", "idle": "yes", "cache": "yes",
                        "demuxer-max-bytes": "96MiB", "demuxer-max-back-bytes": "12MiB",
                        "network-timeout": "30", "subs-match-os-language": "yes",
                        "subs-fallback": "yes", "start": String(request.start)]
-        for (key, value) in options { mpv_set_option_string(mpv, key, value) }
+        #if os(tvOS)
+        // AudioUnit fails on some Apple TV multichannel HDMI routes. The
+        // bundled AVFoundation output lets tvOS negotiate the soundbar layout.
+        options["ao"] = "avfoundation,audiounit"
+        options["audio-channels"] = "auto-safe"
+        options["audio-exclusive"] = "no"
+        // Avoid copying decoded frames back to CPU memory before uploading them.
+        options["hwdec"] = "videotoolbox"
+        // Refill a useful runway instead of restarting every second on Wi-Fi.
+        options["cache-secs"] = "60"
+        options["demuxer-readahead-secs"] = "60"
+        options["demuxer-max-bytes"] = "128MiB"
+        options["demuxer-max-back-bytes"] = "8MiB"
+        options["cache-pause-initial"] = "yes"
+        options["cache-pause-wait"] = "8"
+        #endif
+        for (key, value) in options {
+            let code = mpv_set_option_string(mpv, key, value)
+            if code < 0 { diagnostic("option \(key) failed: \(code)") }
+        }
         mpv_set_option_string(mpv, "sub-fonts-dir", FontStore.directory.path)
         for (key, value) in SubtitleSettings.load().options { mpv_set_option_string(mpv, key, value) }
         let result = mpv_initialize(mpv)
@@ -232,6 +255,8 @@ final class PlayerController: UIViewController {
         }
         let position = number("time-pos"), duration = number("duration")
         let paused = string("pause") == "yes", buffering = string("paused-for-cache") == "yes" || string("idle-active") == "yes"
+        let audioOutput = string("current-ao"), audioRate = number("audio-params/samplerate")
+        let cacheAhead = number("demuxer-cache-duration"), hardwareDecoder = string("hwdec-current")
         tick += 1
         if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format"))") }
         var tracks: [MPVTrack]?; var chapters: [MediaChapter]?
@@ -249,6 +274,8 @@ final class PlayerController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.stopping, let state = self.state else { return }
             state.position = position; state.duration = duration; state.paused = paused; state.buffering = buffering
+            state.audioOutput = audioOutput; state.audioSampleRate = audioRate
+            state.cacheAhead = cacheAhead; state.hardwareDecoder = hardwareDecoder
             if let tracks, tracks != state.tracks { state.tracks = tracks }
             if let chapters, chapters != state.chapters { state.chapters = chapters }
             if let error { state.error = error }

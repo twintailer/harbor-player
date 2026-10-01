@@ -17,6 +17,7 @@ struct TVPlayerScreen: View {
     @State private var style = SubtitleSettings.load()
     @State private var skipped: Set<String> = []
     @State private var identity: PlaybackRequest?
+    @State private var episodeTitle: String?
     @State private var contentID = ""
     @State private var season = ""
     @State private var episode = ""
@@ -31,7 +32,7 @@ struct TVPlayerScreen: View {
     @AppStorage("preferredSubtitles") private var subtitles = TrackPreferences.systemLanguage
     @AppStorage("preferForced") private var forced = true
     private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
-    enum Control: Hashable { case screen, center, close, info, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
+    enum Control: Hashable { case screen, close, info, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
     enum Panel: String, Identifiable { case speed, anime, audio, subtitles; var id: String { rawValue } }
     enum Detail: String, Identifiable { case preferences, subtitles, metadata; var id: String { rawValue } }
     var body: some View {
@@ -54,8 +55,14 @@ struct TVPlayerScreen: View {
             if state.buffering && state.error == nil { ProgressView().scaleEffect(1.5).allowsHitTesting(false) }
             if let segment = state.currentSegment, panel == nil, detail == nil {
                 VStack { Spacer(); HStack { Spacer(); Button(segment.label) { state.seek(segment.end); touch() }
-                    .focused($focus, equals: .skip).accessibilityIdentifier("skipSegment") }.padding(.bottom, controls ? 250 : 70) }.padding(.horizontal, 70)
+                    .focused($focus, equals: .skip).accessibilityIdentifier("skipSegment") }.padding(.bottom, controls ? 205 : 55) }.padding(.horizontal, 64)
             }
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["HARBOR_TEST_CAPTURE_CALLBACK"] == "1" {
+                Text("\(state.audioOutput)|\(Int(state.audioSampleRate))|\(Int(state.cacheAhead))|\(state.hardwareDecoder)")
+                    .font(.system(size: 1)).opacity(0.01).allowsHitTesting(false).accessibilityIdentifier("playbackDiagnostics")
+            }
+            #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
         }.preferredColorScheme(.dark).tint(.white)
             .onPlayPauseCommand { state.toggle(); reveal() }
@@ -88,6 +95,12 @@ struct TVPlayerScreen: View {
                 }
             }
             .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
+            .task(id: "\((identity ?? request).contentID):\((identity ?? request).season ?? 0):\((identity ?? request).episode ?? 0)") {
+                let value = identity ?? request
+                episodeTitle = nil
+                let title = await TVMetadataService.title(for: value, language: Locale.preferredLanguages.first ?? "en") { episodeTitle = $0 }
+                if !Task.isCancelled { episodeTitle = title }
+            }
             .sheet(item: $panel, onDismiss: restoreAfterMenu) { menu($0) }
             .sheet(item: $detail, onDismiss: restoreAfterMenu) { selection in
                 switch selection {
@@ -103,31 +116,42 @@ struct TVPlayerScreen: View {
     private var overlay: some View {
         ZStack {
             LinearGradient(colors: [.black.opacity(0.3), .clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom).ignoresSafeArea().allowsHitTesting(false)
-            Button { state.toggle(); touch() } label: { Image(systemName: state.paused ? "play.fill" : "pause.fill").font(.system(size: 72)).frame(width: 150, height: 130) }
-                .buttonStyle(.plain).focused($focus, equals: .center).accessibilityIdentifier("centerPlayPause").accessibilityLabel(state.paused ? "Wiedergabe" : "Pause")
             VStack {
-                HStack(spacing: 20) {
+                HStack(spacing: 12) {
                     icon("xmark", "Player schließen", .close) { close() }
                     icon("info", "Medien und Intro-Erkennung", .info) { detail = .metadata }
                     Spacer()
                 }.focusSection()
                 Spacer()
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if let value = identity ?? Optional(request), let season = value.season, let episode = value.episode { Text("STAFFEL \(season) · EPISODE \(episode)").font(.caption).foregroundStyle(.secondary) }
-                            Text(request.title).font(.title2.bold()).lineLimit(1)
-                        }
+                        Text(episodeTitle ?? TVMetadataService.fallback(identity ?? request)).font(.system(size: 24, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
                         Spacer()
                         if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout).accessibilityIdentifier("animeActive") }
                     }
+                    HStack(spacing: 12) {
+                        HStack(spacing: 10) {
+                            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
+                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { state.toggle(); touch() }
+                                .accessibilityValue(state.paused ? "paused" : "playing")
+                            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
+                        }.focusSection()
+                        Spacer()
+                        HStack(spacing: 10) {
+                            Button(String(format: "%g×", state.speed)) { panel = .speed; touch() }.focused($focus, equals: .speed).accessibilityLabel("Playback speed")
+                            icon("sparkles.tv", "Anime4K", .anime) { panel = .anime; touch() }
+                            icon("waveform", "Audio language", .audio) { panel = .audio; touch() }
+                            icon("captions.bubble", "Subtitle language", .subtitles) { panel = .subtitles; touch() }
+                            icon("gearshape", "Einstellungen", .settings) { detail = .preferences; touch() }
+                        }.focusSection()
+                    }.buttonStyle(TVPlaybackButtonStyle())
                     Button { touch() } label: {
                         GeometryReader { geometry in
                             ZStack(alignment: .leading) {
                                 Capsule().fill(.white.opacity(0.2))
                                 Capsule().fill(.white).frame(width: geometry.size.width * min(1, max(0, state.duration > 0 ? state.position / state.duration : 0)))
-                            }.frame(height: 6).frame(maxHeight: .infinity)
-                        }.frame(height: 35)
+                            }.frame(height: 4).frame(maxHeight: .infinity)
+                        }.frame(height: 18)
                     }.buttonStyle(.plain).focused($focus, equals: .timeline).accessibilityLabel("Zeitleiste").accessibilityIdentifier("playbackTimeline")
                         .accessibilityValue(clock(state.position))
                         .onMoveCommand { direction in
@@ -135,28 +159,13 @@ struct TVPlayerScreen: View {
                             if direction == .right { state.skip(Double(seekSeconds)) }
                             touch()
                         }
-                    HStack { Text(clock(state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text("−" + clock(max(0, state.duration - state.position))) }.font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                    HStack(spacing: 20) {
-                        HStack(spacing: 12) {
-                            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
-                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { state.toggle(); touch() }
-                            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
-                        }.padding(10).tvGlass().focusSection()
-                        Spacer()
-                        HStack(spacing: 12) {
-                            Button(String(format: "%g×", state.speed)) { panel = .speed; touch() }.focused($focus, equals: .speed).accessibilityLabel("Playback speed")
-                            icon("sparkles.tv", "Anime4K", .anime) { panel = .anime; touch() }
-                            icon("waveform", "Audio language", .audio) { panel = .audio; touch() }
-                            icon("captions.bubble", "Subtitle language", .subtitles) { panel = .subtitles; touch() }
-                            icon("gearshape", "Einstellungen", .settings) { detail = .preferences; touch() }
-                        }.padding(10).tvGlass().focusSection()
-                    }
-                }.padding(.bottom, 15)
-            }.padding(70)
-        }
+                    HStack { Text(clock(state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text(clock(state.duration)) }.font(.system(size: 18).monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }.padding(.horizontal, 64).padding(.vertical, 42).buttonStyle(TVPlaybackButtonStyle())
+        }.ignoresSafeArea()
     }
     private func icon(_ symbol: String, _ label: String, _ control: Control, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 30)).frame(width: 65, height: 45) }
+        Button(action: action) { Image(systemName: symbol) }
             .focused($focus, equals: control).accessibilityLabel(label)
     }
     private func menu(_ selection: Panel) -> some View {
@@ -200,6 +209,8 @@ struct TVPlayerScreen: View {
             TextField("Staffel", text: $season)
             TextField("Episode", text: $episode)
             Text(state.skipStatus).foregroundStyle(.secondary)
+            Text("Audio: \(state.audioOutput.isEmpty ? "Keine Ausgabe" : state.audioOutput) · \(Int(state.audioSampleRate)) Hz")
+            Text("Puffer: \(Int(state.cacheAhead)) Sekunden · Decoder: \(state.hardwareDecoder)")
             Button("Zeiten erneut suchen") { lookupRevision += 1 }
             Toggle("Intro automatisch überspringen", isOn: $autoIntro)
             Toggle("Recap automatisch überspringen", isOn: $autoRecap)
@@ -259,4 +270,18 @@ struct TVPlayerScreen: View {
     private func clock(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
     private func panelTitle(_ value: Panel) -> String { switch value { case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }
     private func animeName(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
+}
+
+private struct TVPlaybackButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.system(size: 22, weight: .medium))
+            .frame(width: 48, height: 48)
+            .foregroundStyle(focused ? Color.black : Color.white)
+            .background(focused ? Color.white : Color.clear, in: Circle())
+            .tvGlass(24).focusEffectDisabled()
+            .scaleEffect(focused ? 1.12 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: focused)
+    }
 }
