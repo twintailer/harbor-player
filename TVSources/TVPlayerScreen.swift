@@ -60,7 +60,9 @@ struct TVPlayerScreen: View {
             #if DEBUG
             if ProcessInfo.processInfo.environment["HARBOR_TEST_CAPTURE_CALLBACK"] == "1" {
                 Text("\(state.audioOutput)|\(Int(state.audioSampleRate))|\(Int(state.cacheAhead))|\(state.hardwareDecoder)")
-                    .font(.system(size: 1)).opacity(0.01).allowsHitTesting(false).accessibilityIdentifier("playbackDiagnostics")
+                    .font(.system(size: 12, design: .monospaced)).padding(8).background(.black)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .allowsHitTesting(false).accessibilityIdentifier("playbackDiagnostics")
             }
             #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }

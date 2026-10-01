@@ -258,7 +258,7 @@ final class PlayerController: UIViewController {
         let audioOutput = string("current-ao"), audioRate = number("audio-params/samplerate")
         let cacheAhead = number("demuxer-cache-duration"), hardwareDecoder = string("hwdec-current")
         tick += 1
-        if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format"))") }
+        if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format")) ao=\(audioOutput) samplerate=\(audioRate) cache=\(cacheAhead) hwdec=\(hardwareDecoder)") }
         var tracks: [MPVTrack]?; var chapters: [MediaChapter]?
         if tick % 4 == 0 {
             tracks = (0..<min(200, max(0, Int(number("track-list/count"))))).map { index in

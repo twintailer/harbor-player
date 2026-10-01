@@ -116,7 +116,11 @@ final class TVPlayerUITests: XCTestCase {
     private func wait(_ name: String, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
         let result = XCTWaiter.wait(for: [expectation], timeout: 30)
-        if result != .completed { capture(name) }
+        if result != .completed {
+            capture(name)
+            let hierarchy = XCTAttachment(string: XCUIApplication().debugDescription)
+            hierarchy.name = name + " hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
+        }
         XCTAssertEqual(result, .completed, name)
     }
     private func capture(_ name: String) {
