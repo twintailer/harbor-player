@@ -63,6 +63,7 @@ final class PlayerController: UIViewController {
     private var animeTier = "balanced"
     private var animeProtection = true
     private var animeResolution = 0
+    private var animeUsingFallback = false
     private var lastDroppedFrames = 0
     private var slowWindows = 0
     init(request: PlaybackRequest, state: PlayerState) {
@@ -221,6 +222,7 @@ final class PlayerController: UIViewController {
     }
     private func applyAnime(_ fallback: Bool = false) {
         guard let handle else { return }
+        animeUsingFallback = fallback
         let height = Int(number("video-params/h"))
         animeResolution = height
         var selected = fallback ? "fast" : animePreset
@@ -299,7 +301,7 @@ final class PlayerController: UIViewController {
         if tick % 16 == 0 {
             if !paused && !buffering && dropped - lastDroppedFrames > 12 { slowWindows += 1 } else { slowWindows = 0 }
             lastDroppedFrames = dropped
-            if animeProtection && slowWindows >= 2 && shaderCount > 1 { applyAnime(true); slowWindows = 0 }
+            if animeProtection && slowWindows >= 2 && shaderCount > 0 && animePreset != "fast" && !animeUsingFallback { applyAnime(true); slowWindows = 0 }
         }
         #endif
         if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format")) ao=\(audioOutput) samplerate=\(audioRate) cache=\(cacheAhead) hwdec=\(hardwareDecoder)") }
