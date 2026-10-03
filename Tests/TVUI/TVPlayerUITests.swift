@@ -152,7 +152,7 @@ final class TVPlayerUITests: XCTestCase {
             app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
             app.launch()
             let diagnostic = app.staticTexts["animeDiagnostics"]
-            wait("Loaded shader chain " + mode) { diagnostic.label.split(separator: "|").first == String(count) }
+            wait("Loaded shader chain " + mode) { diagnostic.label.hasPrefix(String(count) + "|") }
             let start = seconds(app.staticTexts["playbackClock"])
             wait("Video advances with " + mode) { self.seconds(app.staticTexts["playbackClock"]) >= start + 3 }
             capture("Anime4K " + mode + " balanced playback")
