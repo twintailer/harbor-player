@@ -40,6 +40,12 @@ Native Stremio Infuse links identify the series/movie and episode through their 
 
 ## Build
 
+Apple TV 1.3.3 adds previous/next episode buttons beside the 15-second seek controls for identified series. Movies have no episode controls. Sign in under **Settings → Stremio account & addons** once to import installed addon manifests; refresh that list after changing addons in Stremio. Passwords are not saved; account keys and configured addon URLs are stored in the device Keychain and removed on logout.
+
+Episode navigation uses provider metadata, respects released episode order across seasons, excludes specials from a regular season sequence, and obtains a fresh stream for each episode. Automatic next episode starts at actual EOF and can be disabled in Settings. Direct HTTP(S) streams are supported, retaining the current provider and binge group when identified. Torrent-only, external-player-only and streams requiring proxy request headers are not currently supported for this feature. No stream URL is guessed from a filename. If resolution fails, the current player stays open with an explanation.
+
+With an account connected, switching episodes and closing save playback progress through Stremio's datastore API while preserving existing library bookmarks. Returning to Stremio after a switch uses the new episode identity. CI validates login/import and progress merging against synthetic API fixtures; no real user account or physical Apple TV is used.
+
 Standard macOS GitHub Actions runners in this **public** repository do not consume included private-repository minutes. The workflow refuses to run if the repository is private. Artifacts expire after seven days.
 
 On a Mac: install XcodeGen, run `xcodegen generate`, then build the HarborPlayer scheme. CI runs pure Swift regression tests, builds the unsigned iPhone IPA, and exercises automatic landscape, resume, double-tap seeking, actual audio/forced/full subtitle selection and the outgoing native Stremio callback in an iPhone Simulator using an original synthetic fixture. This does not verify physical iPhone GPU performance or Stremio account synchronization.

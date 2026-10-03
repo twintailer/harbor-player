@@ -39,7 +39,7 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.select)
         wait("Remote skips backward") { abs(self.seconds(clock) - start) <= 1 }
         capture("Apple TV Liquid Glass player")
-        for _ in 0..<3 { remote.press(.right) }
+        for _ in 0..<4 { remote.press(.right) }
         XCTAssertTrue(app.buttons["Playback speed"].hasFocus)
         remote.press(.select)
         XCTAssertTrue(app.buttons["closeSettings"].waitForExistence(timeout: 10))
@@ -159,6 +159,52 @@ final class TVPlayerUITests: XCTestCase {
             app.terminate()
         }
     }
+    func testAutomaticNextAndPreviousAcrossSeasons() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30", "-autoNextEpisode", "YES", "-tvAnimeSelection", "off"]
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv?episode=tt123:1:2"), .init(name: "position", value: "58"), .init(name: "x-success", value: "stremio:///detail/series/tt123/tt123:1:2")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launchEnvironment["HARBOR_TEST_META_URL"] = "http://127.0.0.1:8765"
+        app.launchEnvironment["HARBOR_TEST_STREMIO_API"] = "http://127.0.0.1:8765/api"
+        app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
+        app.launch()
+        wait("Actual EOF starts next season") { app.staticTexts["episodeTitle"].label == "New season – (2×1)" && self.seconds(app.staticTexts["playbackClock"]) >= 1 && self.seconds(app.staticTexts["playbackClock"]) < 30 }
+        XCTAssertTrue(app.buttons["previousEpisode"].exists)
+        XCTAssertFalse(app.buttons["nextEpisode"].isEnabled, "Last released episode has no next button action")
+        capture("Episode navigation across season boundary")
+        remote.press(.playPause)
+        wait("Pause new episode") { app.buttons["Play-Pause"].value as? String == "paused" }
+        remote.press(.left); remote.press(.left)
+        wait("Previous episode focused") { app.buttons["previousEpisode"].hasFocus }
+        remote.press(.select)
+        wait("Previous episode loads") { app.staticTexts["episodeTitle"].label == "Ein Testabenteuer – (1×2)" && self.seconds(app.staticTexts["playbackClock"]) < 30 }
+        remote.press(.playPause)
+        wait("Pause previous episode") { app.buttons["Play-Pause"].value as? String == "paused" }
+        remote.press(.right); remote.press(.right)
+        wait("Next episode focused") { app.buttons["nextEpisode"].hasFocus }
+        remote.press(.select)
+        wait("Manual next episode loads") { app.staticTexts["episodeTitle"].label == "New season – (2×1)" && self.seconds(app.staticTexts["playbackClock"]) >= 1 }
+        remote.press(.menu); remote.press(.menu)
+        let callback = app.staticTexts["returnCallback"]
+        wait("Return identifies new episode") { callback.exists && callback.label.contains("tt123:2:1") && callback.label.contains("position=") }
+        app.terminate()
+    }
+
+    func testMoviesHaveNoEpisodeNavigation() {
+        let app = XCUIApplication()
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "x-success", value: "stremio:///detail/movie/tt123")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launch()
+        XCTAssertTrue(app.buttons["Play-Pause"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["previousEpisode"].exists)
+        XCTAssertFalse(app.buttons["nextEpisode"].exists)
+        app.terminate()
+    }
+
     private func seconds(_ clock: XCUIElement) -> Int {
         guard clock.exists else { return -1 }
         let values = clock.label.split(separator: ":").compactMap { Int($0) }

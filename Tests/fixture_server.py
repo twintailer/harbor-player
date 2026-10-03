@@ -3,11 +3,58 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
 import sys
+import json
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent / 'Fixtures'
 
 
 class Handler(SimpleHTTPRequestHandler):
+    progress = {}
+
+    def json_response(self, value):
+        data = json.dumps(value).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
+        method = urlparse(self.path).path.rsplit('/', 1)[-1]
+        if method == 'addonCollectionGet' and body.get('authKey') == 'fixture-only':
+            self.json_response({'result': {'addons': [{
+                'transportUrl': 'http://127.0.0.1:8765/test-addon/manifest.json',
+                'manifest': {'name': 'Local fixture', 'types': ['series'], 'resources': ['stream', 'meta']}
+            }]}})
+        elif method == 'datastoreGet':
+            item = self.progress.get(body['ids'][0])
+            self.json_response({'result': [item] if item else []})
+        elif method == 'datastorePut':
+            for item in body['changes']:
+                self.progress[item['_id']] = item
+            self.json_response({'result': True})
+        else:
+            self.json_response({'error': {'code': 1, 'message': 'fixture unauthorized'}})
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path == '/test-progress':
+            self.json_response(self.progress)
+        elif path.startswith('/test-addon/stream/series/'):
+            video_id = path.rsplit('/', 1)[-1].removesuffix('.json')
+            self.json_response({'streams': [{'url': f'http://127.0.0.1:8765/languages.mkv?episode={video_id}', 'behaviorHints': {'bingeGroup': 'fixture-release'}}]})
+        elif path.startswith('/test-addon/meta/series/'):
+            self.json_response({'meta': {'name': 'Test series', 'videos': [
+                {'id': 'tt123:1:1', 'season': 1, 'episode': 1, 'title': 'First episode'},
+                {'id': 'tt123:1:2', 'season': 1, 'episode': 2, 'title': 'Test adventure'},
+                {'id': 'tt123:2:1', 'season': 2, 'episode': 1, 'title': 'New season'},
+                {'id': 'tt123:3:1', 'season': 3, 'episode': 1, 'released': '2999-01-01T00:00:00Z'}
+            ]}})
+        else:
+            super().do_GET()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 

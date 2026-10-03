@@ -13,6 +13,15 @@ struct TVPlayerScreen: View {
     @State private var detail: Detail?
     @State private var closing = false
     @State private var replacing = false
+    @ObservedObject private var account = TVStremioAccount.shared
+    @AppStorage("autoNextEpisode") private var autoNext = true
+    @State private var episodes: [SeriesEpisode] = []
+    @State private var navigating = false
+    @State private var navigationMessage: String?
+    @State private var navigationTask: Task<Void, Never>?
+    @State private var autoAttempt: UUID?
+    @State private var metadataBusy = false
+    @State private var accountSetup = false
     @AppStorage("tvAnimeSelection") private var preset = "auto"
     @AppStorage("tvAnimeSavedMode") private var savedAnimeMode = "A"
     @AppStorage("tvAnimeTier") private var animeTier = "balanced"
@@ -39,7 +48,7 @@ struct TVPlayerScreen: View {
     @AppStorage("preferredSubtitles") private var subtitles = TrackPreferences.systemLanguage
     @AppStorage("preferForced") private var forced = true
     private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
-    enum Control: Hashable { case screen, close, info, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
+    enum Control: Hashable { case screen, close, info, previousEpisode, nextEpisode, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
     enum Panel: String, Identifiable { case speed, anime, audio, subtitles; var id: String { rawValue } }
     enum Detail: String, Identifiable { case preferences, subtitles, metadata; var id: String { rawValue } }
     private var playerCanvas: some View {
@@ -81,6 +90,7 @@ struct TVPlayerScreen: View {
             }
             #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
+            if navigating { ProgressView("Folge laden …").padding(24).tvGlass().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(64) }
         }
     }
     private var remoteEvents: some View {
@@ -109,11 +119,11 @@ struct TVPlayerScreen: View {
             .onChange(of: subtitles) { _, _ in state.controller?.applyLanguagePreferences() }
             .onChange(of: forced) { _, _ in state.controller?.applyLanguagePreferences() }
             .onAppear(perform: preparePlayback)
-            .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
+            .onDisappear { navigationTask?.cancel(); state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
             .onReceive(pulse) { _ in updatePlaybackControls() }
     }
     var body: some View {
-        playbackEvents
+        episodeEvents
             .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
             .task(id: "\((identity ?? request).contentID):\((identity ?? request).season ?? 0):\((identity ?? request).episode ?? 0)") {
                 let value = identity ?? request
@@ -133,6 +143,45 @@ struct TVPlayerScreen: View {
                 Button("Schließen") { state.error = nil; close() }
             } message: { Text(state.error ?? "") }
     }
+    private var episodeIdentity: PlaybackRequest { identity ?? request }
+    private var isSeries: Bool { episodeIdentity.contentType != "movie" && !episodeIdentity.contentID.isEmpty && episodeIdentity.season != nil && episodeIdentity.episode != nil }
+    private var episodeIndex: Int? { episodes.firstIndex { $0.season == episodeIdentity.season && $0.episodeNumber == episodeIdentity.episode } }
+    private var previousEpisode: SeriesEpisode? { guard let i = episodeIndex, i > 0 else { return nil }; return episodes[i - 1] }
+    private var nextEpisode: SeriesEpisode? { guard let i = episodeIndex, i + 1 < episodes.count else { return nil }; return episodes[i + 1] }
+    private var currentVideoID: String { episodeIndex.map { episodes[$0].id } ?? "\(episodeIdentity.contentID):\(episodeIdentity.season ?? 1):\(episodeIdentity.episode ?? 1)" }
+    private var episodeTaskID: String {
+        let providers = account.credentials?.addons.map { $0.transportUrl.absoluteString }.joined(separator: "|") ?? ""
+        return "\(request.id):\(episodeIdentity.contentID):\(episodeIdentity.season ?? 0):\(episodeIdentity.episode ?? 0):\(providers)"
+    }
+    private var episodeEvents: some View {
+        playbackEvents
+            .task(id: episodeTaskID) { await loadEpisodes() }
+            .onChange(of: state.ended) { _, ended in if ended { advanceAtEnd() } }
+            .onChange(of: metadataBusy) { _, busy in if !busy && state.ended { advanceAtEnd() } }
+            .sheet(isPresented: $accountSetup) { TVStremioLogin() }
+            .alert("Folgenwechsel", isPresented: Binding(get: { navigationMessage != nil }, set: { if !$0 { navigationMessage = nil } })) {
+                if account.credentials == nil { Button("Stremio anmelden") { accountSetup = true } }
+                Button("OK", role: .cancel) { navigationMessage = nil }
+            } message: { Text(navigationMessage ?? "") }
+    }
+    private var episodeTransport: some View {
+        HStack(spacing: 10) {
+            if isSeries {
+                icon("backward.end.fill", "Vorherige Folge", .previousEpisode) { changeEpisode(previousEpisode) }
+                    .disabled(navigating || metadataBusy || (previousEpisode == nil && account.credentials != nil))
+                    .accessibilityIdentifier("previousEpisode")
+            }
+            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
+            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { commitScrub(); state.toggle(); touch() }
+                .accessibilityValue(state.paused ? "paused" : "playing")
+            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
+            if isSeries {
+                icon("forward.end.fill", "Nächste Folge", .nextEpisode) { changeEpisode(nextEpisode) }
+                    .disabled(navigating || metadataBusy || (nextEpisode == nil && account.credentials != nil))
+                    .accessibilityIdentifier("nextEpisode")
+            }
+        }.focusSection()
+    }
     private var overlay: some View {
         ZStack {
             LinearGradient(colors: [.black.opacity(0.3), .clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom).ignoresSafeArea().allowsHitTesting(false)
@@ -150,12 +199,7 @@ struct TVPlayerScreen: View {
                         if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout).accessibilityIdentifier("animeActive") }
                     }
                     HStack(spacing: 12) {
-                        HStack(spacing: 10) {
-                            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
-                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { commitScrub(); state.toggle(); touch() }
-                                .accessibilityValue(state.paused ? "paused" : "playing")
-                            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
-                        }.focusSection()
+                        episodeTransport
                         Spacer()
                         HStack(spacing: 10) {
                             Button(String(format: "%g×", state.speed)) { panel = .speed; touch() }.focused($focus, equals: .speed).accessibilityLabel("Playback speed")
@@ -296,25 +340,81 @@ struct TVPlayerScreen: View {
         touch()
     }
     private func restart(_ url: URL) {
+        navigationTask?.cancel()
         guard !closing else { return }; closing = true
         let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: request.isAnime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback)
         let replace = {
             if replacing { dismiss(); return }
             request = replacement; identity = nil
             state.buffering = true; state.duration = 0; state.segments = []; state.animeActive = false
+            state.ended = false
             state.speed = 1; scrubPosition = nil; skipped = []; closing = false; reveal()
         }
         if let controller = state.controller { controller.shutdown(completion: replace) } else { replace() }
     }
     private func close() {
+        navigationTask?.cancel()
         commitScrub()
         guard !closing else { return }; closing = true
         if let controller = state.controller {
+            let snapshot = episodeIdentity, video = currentVideoID, duration = state.duration, completed = state.ended
             controller.finishPlayback { position, loaded in
                 if !replacing { playbackReturn.prepare(request, position: position, loaded: loaded) }
+                if loaded && isSeries { Task { await account.save(snapshot, videoID: video, position: position, duration: duration, completed: completed) } }
                 dismiss()
             }
         } else { dismiss() }
+    }
+    private func loadEpisodes() async {
+        episodes = []; metadataBusy = true
+        defer { if !Task.isCancelled { metadataBusy = false } }
+        guard isSeries else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["HARBOR_TEST_ACCOUNT"] == "fixture-only", account.credentials?.addons.isEmpty == true { await account.refresh() }
+        #endif
+        do {
+            let values = try await TVEpisodeService().episodes(episodeIdentity, addons: account.credentials?.addons ?? [])
+            guard !Task.isCancelled else { return }
+            episodes = values
+        } catch { /* A temporary metadata failure leaves playback available. */ }
+    }
+    private func advanceAtEnd() {
+        guard autoNext, isSeries, !metadataBusy, !closing, !navigating, autoAttempt != request.id else { return }
+        autoAttempt = request.id
+        if nextEpisode != nil { changeEpisode(nextEpisode) }
+        else if account.credentials == nil { navigationMessage = "Melde dich in Kairo bei Stremio an, um Folgen aus deinen installierten Addons abzuspielen." }
+        else if episodes.isEmpty { navigationMessage = "Keine Episodenliste verfügbar. Öffne die nächste Folge in Stremio oder versuche es erneut." }
+    }
+    private func changeEpisode(_ target: SeriesEpisode?) {
+        guard !closing, !navigating else { return }
+        guard let credentials = account.credentials else { navigationMessage = "Melde dich in Kairo bei Stremio an, um deine installierten Addons für den Folgenwechsel zu verwenden."; return }
+        guard let target else { navigationMessage = "Keine benachbarte Folge verfügbar. Die Episodenliste konnte möglicherweise nicht geladen werden."; return }
+        commitScrub(); touch(); navigating = true
+        let snapshot = episodeIdentity, oldID = request.id, video = currentVideoID
+        navigationTask = Task { @MainActor in
+            defer { navigating = false }
+            do {
+                let url = try await TVEpisodeService().resolve(target, current: request, currentVideoID: video, addons: credentials.addons)
+                guard !Task.isCancelled, !closing, request.id == oldID, account.credentials?.authKey == credentials.authKey else { return }
+                let duration = state.duration, completed = state.ended
+                var replacement = PlaybackRequest(url: url, title: target.title ?? target.name ?? "Folge", contentID: snapshot.contentID, season: target.season, episode: target.episodeNumber, isAnime: snapshot.isAnime)
+                replacement.contentType = "series"
+                replacement.successCallback = TVEpisodeService.callback(request.successCallback, contentID: snapshot.contentID, videoID: target.id)
+                if let controller = state.controller {
+                    let result: (Double, Bool) = await withCheckedContinuation { continuation in
+                        controller.finishPlayback { position, loaded in continuation.resume(returning: (position, loaded)) }
+                    }
+                    if result.1 { await account.save(snapshot, videoID: video, position: result.0, duration: duration, completed: completed) }
+                }
+                guard !Task.isCancelled, !closing, request.id == oldID else { return }
+                request = replacement; identity = nil; episodeTitle = target.displayTitle
+                contentID = replacement.contentID; season = String(target.season ?? 1); episode = String(target.episodeNumber ?? 1)
+                state.position = 0; state.duration = 0; state.ended = false; state.paused = false; state.buffering = true
+                state.error = nil; state.tracks = []; state.chapters = []; state.segments = []; state.speed = 1
+                state.animeActive = false; state.subtitleText = ""; skipped = []; scrubPosition = nil; reveal()
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled && !closing { navigationMessage = error.localizedDescription } }
+        }
     }
     private func clock(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
     private func panelTitle(_ value: Panel) -> String { switch value { case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }

@@ -22,19 +22,23 @@ struct TVSheet<Content: View>: View {
 }
 
 struct TVPreferences: View {
+    @State private var stremio = false
+    @AppStorage("autoNextEpisode") private var autoNext = true
     @AppStorage("controlsHideSeconds") private var hideSeconds = 6.0
     @AppStorage("autoSkipIntro") private var intro = false
     @AppStorage("autoSkipRecap") private var recap = false
     @AppStorage("autoSkipOutro") private var outro = false
     var body: some View {
         TVSheet(title: "Sprachen & Bedienung") {
+            Button("Stremio-Konto & Addons") { stremio = true }.accessibilityIdentifier("openStremioAccount")
+            Toggle("Nächste Folge automatisch starten", isOn: $autoNext)
             LanguagePreferencesView()
             TVNumberSetting(title: "Leiste ausblenden nach (Sekunden)", value: $hideSeconds, range: 3...30, step: 1)
             Toggle("Intro automatisch überspringen", isOn: $intro)
             Toggle("Recap automatisch überspringen", isOn: $recap)
             Toggle("Abspann automatisch überspringen", isOn: $outro)
             Text("Lautstärke steuerst du über die Lautstärketasten der Siri Remote. Die Bildhelligkeit stellst du am Fernseher ein.").font(.callout).foregroundStyle(.secondary)
-        }
+        }.sheet(isPresented: $stremio) { TVStremioLogin() }
     }
 }
 

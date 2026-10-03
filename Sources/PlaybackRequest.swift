@@ -11,6 +11,7 @@ struct PlaybackRequest: Identifiable, Equatable {
     var start: Double = 0
     var subtitle: URL? = nil
     var successCallback: URL? = nil
+    var contentType: String? = nil
 
     static func parse(_ input: URL) throws -> PlaybackRequest {
         let scheme = input.scheme?.lowercased() ?? ""
@@ -34,6 +35,7 @@ struct PlaybackRequest: Identifiable, Equatable {
         func value(_ key: String) -> String? { parts.queryItems?.first(where: { $0.name == key })?.value }
         var result = PlaybackRequest(url: url, title: value("title") ?? value("filename") ?? url.lastPathComponent)
         result.contentID = value("id") ?? ""
+        result.contentType = value("type")
         result.season = value("season").flatMap(Int.init)
         result.episode = value("episode").flatMap(Int.init)
         result.isAnime = value("anime") == "1" || result.contentID.hasPrefix("mal:") || result.contentID.hasPrefix("kitsu:")
@@ -58,13 +60,14 @@ struct PlaybackRequest: Identifiable, Equatable {
             let fields = route.split(separator: "/").map(String.init)
             if let detail = fields.firstIndex(of: "detail"), fields.count > detail + 2 {
                 let type = fields[detail + 1]
+                contentType = contentType ?? type
                 let meta = fields[detail + 2]
                 let video = fields.count > detail + 3 ? fields[detail + 3] : meta
                 applyIdentity(meta, video: video, type: type)
             }
         }
         if !contentID.isEmpty { applyIdentity(contentID, video: contentID, type: nil) }
-        if season == nil || episode == nil {
+        if contentType != "movie", season == nil || episode == nil {
             let text = title.removingPercentEncoding ?? title
             if let range = text.range(of: #"(?i)\bS(\d{1,3})[ ._-]*E(\d{1,4})\b"#, options: .regularExpression) {
                 let numbers = text[range].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }

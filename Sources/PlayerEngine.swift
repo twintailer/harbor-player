@@ -8,6 +8,7 @@ final class PlayerState: ObservableObject {
     @Published var duration = 0.0
     @Published var paused = false
     @Published var buffering = true
+    @Published var ended = false
     @Published var tracks: [MPVTrack] = []
     @Published var chapters: [MediaChapter] = []
     @Published var error: String?
@@ -292,6 +293,8 @@ final class PlayerController: UIViewController {
             }
         }
         let position = number("time-pos"), duration = number("duration")
+        // keep-open retains the file at EOF; END_FILE alone is insufficient.
+        let ended = loaded && string("eof-reached") == "yes"
         let paused = string("pause") == "yes", buffering = string("paused-for-cache") == "yes" || string("idle-active") == "yes"
         let audioOutput = string("current-ao"), audioRate = number("audio-params/samplerate")
         let cacheAhead = number("demuxer-cache-duration"), hardwareDecoder = string("hwdec-current")
@@ -323,6 +326,7 @@ final class PlayerController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.stopping, let state = self.state else { return }
             state.position = position; state.duration = duration; state.paused = paused; state.buffering = buffering
+            state.ended = ended
             state.audioOutput = audioOutput; state.audioSampleRate = audioRate
             state.cacheAhead = cacheAhead; state.hardwareDecoder = hardwareDecoder
             state.shaderCount = shaderCount; state.droppedFrames = dropped

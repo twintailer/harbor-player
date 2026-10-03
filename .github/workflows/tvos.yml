@@ -34,6 +34,8 @@ jobs:
           /tmp/tv-metadata-tests
           swiftc -parse-as-library Sources/Anime4KPresets.swift Tests/Anime4KTests.swift -o /tmp/anime-tests
           /tmp/anime-tests
+          swiftc -parse-as-library Sources/PlaybackRequest.swift TVSources/StremioAPI.swift Tests/TVEpisodeTests.swift -o /tmp/episode-tests
+          /tmp/episode-tests
       - name: Generate project and boot Apple TV
         run: |
           brew install xcodegen
@@ -57,13 +59,13 @@ jobs:
           cp -R build-tvos/Build/Products/Release-appletvos/KairoTV.app TVPayload/Payload/
           test -f TVPayload/Payload/KairoTV.app/Anime4K/Anime4K_Upscale_DTD_x2.glsl
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' TVPayload/Payload/KairoTV.app/Info.plist
-          (cd TVPayload && zip -qr ../KairoPlayer_tvOS27_1.3.2_unsigned.ipa Payload)
-          shasum -a 256 KairoPlayer_tvOS27_1.3.2_unsigned.ipa > TV-SHA256SUMS
+          (cd TVPayload && zip -qr ../KairoPlayer_tvOS27_1.3.3_unsigned.ipa Payload)
+          shasum -a 256 KairoPlayer_tvOS27_1.3.3_unsigned.ipa > TV-SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: KairoPlayer-AppleTV-unsigned
           path: |
-            KairoPlayer_tvOS27_1.3.2_unsigned.ipa
+            KairoPlayer_tvOS27_1.3.3_unsigned.ipa
             TV-SHA256SUMS
           retention-days: 7
       - name: Test playback with Siri Remote on tvOS 27
