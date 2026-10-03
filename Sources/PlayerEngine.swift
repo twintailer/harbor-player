@@ -12,6 +12,9 @@ final class PlayerState: ObservableObject {
     @Published var chapters: [MediaChapter] = []
     @Published var error: String?
     @Published var animeActive = false
+    @Published var animeStatus = ""
+    @Published var shaderCount = 0
+    @Published var droppedFrames = 0
     @Published var speed = 1.0
     @Published var audioOutput = ""
     @Published var audioSampleRate = 0.0
@@ -56,6 +59,12 @@ final class PlayerController: UIViewController {
     private var preferences = TrackPreferences.load()
     private var manualAudio = false
     private var manualSubtitles = false
+    private var animePreset = "off"
+    private var animeTier = "balanced"
+    private var animeProtection = true
+    private var animeResolution = 0
+    private var lastDroppedFrames = 0
+    private var slowWindows = 0
     init(request: PlaybackRequest, state: PlayerState) {
         self.request = request; self.state = state
         self.manualSubtitles = request.subtitle != nil
@@ -201,26 +210,43 @@ final class PlayerController: UIViewController {
             DispatchQueue.main.async { [self] in shutdown { completion(snapshot, valid) } }
         }
     }
-    func anime(_ preset: String) {
-        let names: [String]
-        switch preset {
-        case "fast": names = ["Anime4K_Upscale_DTD_x2"]
-        case "A": names = ["Anime4K_Restore_CNN_S", "Anime4K_Upscale_CNN_x2_S"]
-        case "B": names = ["Anime4K_Restore_CNN_Soft_S", "Anime4K_Upscale_CNN_x2_S"]
-        case "C": names = ["Anime4K_Upscale_Denoise_CNN_x2_S"]
-        case "hq": names = ["Anime4K_Clamp_Highlights", "Anime4K_Restore_CNN_VL", "Anime4K_Upscale_CNN_x2_VL", "Anime4K_AutoDownscalePre_x2", "Anime4K_AutoDownscalePre_x4", "Anime4K_Upscale_CNN_x2_M"]
-        default: names = []
-        }
-        let paths = names.compactMap { Bundle.main.url(forResource: $0, withExtension: "glsl", subdirectory: "Anime4K")?.path }
-        guard names.count == paths.count else { state?.error = "Anime4K-Dateien fehlen."; return }
+    func anime(_ preset: String, tier: String = "balanced", protection: Bool = true) {
         queue.async { [weak self] in
-            guard let self, let handle = self.handle else { return }
-            let result = mpv_set_property_string(handle, "glsl-shaders", paths.joined(separator: ":"))
-            DispatchQueue.main.async { [weak self] in
-                guard let self, !self.stopping else { return }
-                self.state?.animeActive = result >= 0 && !paths.isEmpty
-                if result < 0 { self.state?.error = "Anime4K konnte nicht aktiviert werden." }
-            }
+            guard let self else { return }
+            self.animePreset = preset; self.animeTier = preset == "hq" ? "hq" : tier
+            self.animeProtection = protection; self.slowWindows = 0
+            self.lastDroppedFrames = Int(self.number("frame-drop-count"))
+            self.applyAnime()
+        }
+    }
+    private func applyAnime(_ fallback: Bool = false) {
+        guard let handle else { return }
+        let height = Int(number("video-params/h"))
+        animeResolution = height
+        var selected = fallback ? "fast" : animePreset
+        #if os(tvOS)
+        // Native 1440p/4K has no useful 2x upscale and can allocate enormous CNN textures.
+        if height > 1080 { selected = "off" }
+        #endif
+        let names = Anime4KPresets.shaders(selected, tier: animeTier)
+        let paths = names.compactMap { Bundle.main.url(forResource: $0, withExtension: "glsl", subdirectory: "Anime4K")?.path }
+        guard names.count == paths.count else {
+            DispatchQueue.main.async { [weak self] in self?.state?.error = "Anime4K-Dateien fehlen." }; return
+        }
+        #if os(tvOS)
+        // Anime4K owns upscaling; avoid a second expensive mpv scaler/interpolation pass.
+        for (key, value) in ["scale": "bilinear", "cscale": "bilinear", "dscale": "bilinear", "interpolation": "no", "video-sync": "audio"] {
+            mpv_set_property_string(handle, key, value)
+        }
+        #endif
+        let result = mpv_set_property_string(handle, "glsl-shaders", paths.joined(separator: ":"))
+        let status = selected == "off" && animePreset != "off" ? "Anime4K: bei mehr als 1080p deaktiviert" : (fallback ? "Anime4K: DTD-Leistungsschutz aktiv" : Anime4KPresets.label(selected))
+        diagnostic("anime=\(selected) tier=\(animeTier) shaders=\(paths.count) result=\(result) height=\(height)")
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.stopping else { return }
+            self.state?.animeActive = result >= 0 && !paths.isEmpty
+            self.state?.animeStatus = status
+            if result < 0 { self.state?.error = "Anime4K konnte nicht aktiviert werden." }
         }
     }
     private func number(_ key: String) -> Double {
@@ -232,6 +258,14 @@ final class PlayerController: UIViewController {
     private func string(_ key: String) -> String {
         guard let handle, let value = mpv_get_property_string(handle, key) else { return "" }
         defer { mpv_free(value) }; return String(cString: value)
+    }
+    private func listCount(_ key: String) -> Int {
+        guard let handle else { return 0 }
+        var node = mpv_node()
+        guard mpv_get_property(handle, key, MPV_FORMAT_NODE, &node) >= 0 else { return 0 }
+        defer { mpv_free_node_contents(&node) }
+        guard node.format == MPV_FORMAT_NODE_ARRAY, let list = node.u.list else { return 0 }
+        return Int(list.pointee.num)
     }
     private func poll() {
         guard let handle else { return }
@@ -257,7 +291,17 @@ final class PlayerController: UIViewController {
         let paused = string("pause") == "yes", buffering = string("paused-for-cache") == "yes" || string("idle-active") == "yes"
         let audioOutput = string("current-ao"), audioRate = number("audio-params/samplerate")
         let cacheAhead = number("demuxer-cache-duration"), hardwareDecoder = string("hwdec-current")
+        let dropped = Int(number("frame-drop-count"))
+        let shaderCount = listCount("glsl-shaders")
         tick += 1
+        #if os(tvOS)
+        if animePreset != "off", Int(number("video-params/h")) != animeResolution { applyAnime() }
+        if tick % 16 == 0 {
+            if !paused && !buffering && dropped - lastDroppedFrames > 12 { slowWindows += 1 } else { slowWindows = 0 }
+            lastDroppedFrames = dropped
+            if animeProtection && slowWindows >= 2 && shaderCount > 1 { applyAnime(true); slowWindows = 0 }
+        }
+        #endif
         if tick % 16 == 0 { diagnostic("position=\(position) duration=\(duration) vo=\(string("current-vo")) video=\(string("video-format")) ao=\(audioOutput) samplerate=\(audioRate) cache=\(cacheAhead) hwdec=\(hardwareDecoder)") }
         var tracks: [MPVTrack]?; var chapters: [MediaChapter]?
         if tick % 4 == 0 {
@@ -276,6 +320,7 @@ final class PlayerController: UIViewController {
             state.position = position; state.duration = duration; state.paused = paused; state.buffering = buffering
             state.audioOutput = audioOutput; state.audioSampleRate = audioRate
             state.cacheAhead = cacheAhead; state.hardwareDecoder = hardwareDecoder
+            state.shaderCount = shaderCount; state.droppedFrames = dropped
             if let tracks, tracks != state.tracks { state.tracks = tracks }
             if let chapters, chapters != state.chapters { state.chapters = chapters }
             if let error { state.error = error }

@@ -49,7 +49,8 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.right)
         XCTAssertTrue(app.buttons["Anime4K"].hasFocus)
         remote.press(.select)
-        wait("Anime4K menu opens") { app.buttons["anime-off"].hasFocus }
+        wait("Anime4K menu opens") { app.buttons["anime-auto"].hasFocus }
+        remote.press(.down)
         remote.press(.down)
         XCTAssertTrue(app.buttons["anime-fast"].hasFocus)
         remote.press(.select)
@@ -107,6 +108,52 @@ final class TVPlayerUITests: XCTestCase {
         XCTAssertLessThan(seconds(clock), 40)
         capture("Apple TV automatic intro and recap")
         app.terminate()
+    }
+    func testPausedTimelineAndForcedASSStyle() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30", "-tvAnimeSelection", "off"]
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "subtitle", value: "http://127.0.0.1:8765/styled.ass")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launch()
+        let clock = app.staticTexts["playbackClock"]
+        wait("ASS fixture plays") { self.seconds(clock) >= 12 }
+        remote.press(.playPause)
+        wait("Paused for timeline") { app.buttons["Play-Pause"].value as? String == "paused" }
+        let start = seconds(clock)
+        remote.press(.down)
+        let timeline = app.buttons["playbackTimeline"]
+        wait("Timeline receives focus") { timeline.hasFocus }
+        remote.press(.right)
+        wait("Paused timeline previews forward") { self.seconds(clock) == min(60, start + 15) }
+        XCTAssertEqual(app.buttons["Play-Pause"].value as? String, "paused")
+        capture("Larger TV UI and focused timeline without white plate")
+        remote.press(.select)
+        wait("Timeline commits without resuming") { self.seconds(clock) == min(60, start + 15) && app.buttons["Play-Pause"].value as? String == "paused" }
+        remote.press(.left)
+        remote.press(.select)
+        wait("Timeline returns to original position") { abs(self.seconds(clock) - start) <= 1 }
+        remote.press(.menu)
+        wait("ASS video unobscured") { !clock.exists }
+        capture("Forced ASS style strips top positioning, red color and huge font")
+        app.terminate()
+    }
+    func testAllSixAnime4KShaderChains() {
+        continueAfterFailure = false
+        for (mode, count) in [("A", 2), ("B", 2), ("C", 1), ("AA", 4), ("BB", 4), ("CA", 2)] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-controlsHideSeconds", "30", "-tvAnimeSelection", mode, "-tvAnimeTier", "balanced", "-tvAnimeProtection", "NO"]
+            app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = "http://127.0.0.1:8765/languages.mkv"
+            app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+            app.launch()
+            let diagnostic = app.staticTexts["animeDiagnostics"]
+            wait("Loaded shader chain " + mode) { diagnostic.label.split(separator: "|").first == String(count) }
+            let start = seconds(app.staticTexts["playbackClock"])
+            wait("Video advances with " + mode) { self.seconds(app.staticTexts["playbackClock"]) >= start + 3 }
+            capture("Anime4K " + mode + " balanced playback")
+            app.terminate()
+        }
     }
     private func seconds(_ clock: XCUIElement) -> Int {
         guard clock.exists else { return -1 }

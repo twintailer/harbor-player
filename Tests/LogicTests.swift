@@ -89,6 +89,18 @@ import Foundation
         precondition(preferences.preferredSubtitle(in: tracks, actualAudio: german) == english.id)
         var style = SubtitleSettings()
         precondition(style.options["sub-ass-override"] == "strip")
+        precondition(style.options["sub-ass-use-video-data"] == "none")
+        precondition(style.options["sub-ass-force-margins"] == "yes")
+        precondition(style.options["embeddedfonts"] == "no")
+        let legacy = try JSONEncoder().encode(style)
+        let restoredStyle = try JSONDecoder().decode(SubtitleSettings.self, from: legacy)
+        precondition(restoredStyle.lineSpacing == nil)
+        style.ass = "force"; style.lineSpacing = 7
+        precondition(style.options["sub-ass-override"] == "strip", "Force must strip inline ASS/SRT styling, not retain protected tags")
+        precondition(style.options["sub-line-spacing"] == "7.0")
+        style.ass = "no"
+        precondition(style.options["embeddedfonts"] == "yes" && style.options["sub-ass-use-video-data"] == "all")
+        style.ass = "strip"
         precondition(style.options["sub-color"] == "#FFFFFFFF")
         style.style = "box"; style.boxOpacity = 0.6; style.opacity = 0.5
         precondition(style.options["sub-back-color"] == "#4C000000")

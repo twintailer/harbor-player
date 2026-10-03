@@ -69,12 +69,14 @@ struct TVSubtitleSettings: View {
                 .background(style.style == "box" ? color(style.boxColor).opacity(style.boxOpacity) : .black)
                 .shadow(color: color(style.borderColor), radius: style.style == "shadow" ? 2 : 0)
             Picker("Hintergrund", selection: $style.style) { Text("Schatten").tag("shadow"); Text("Umrandung").tag("outline"); Text("Balken").tag("box") }
-            Picker("ASS-Stil", selection: $style.ass) { Text("Mein Stil").tag("strip"); Text("Original").tag("no"); Text("Nur Größe").tag("scale") }
+            Picker("Untertitelstil", selection: $style.ass) { Text("Force my style · alle Textuntertitel").tag("strip"); Text("Original").tag("no"); Text("Nur Größe").tag("scale") }
+            Text("Force my style entfernt auch eingebettete ASS- und SRT-Formatierungen. Bilduntertitel (PGS/VobSub) und eingebrannter Text haben keine austauschbare Schrift.").font(.callout).foregroundStyle(.secondary)
             Picker("Schrift", selection: $style.font) {
                 ForEach(Array(Set(["Inter", "Helvetica Neue", "Arial Rounded MT Bold", "Georgia", "Geeza Pro", style.font])).sorted(), id: \.self) { Text($0).tag($0) }
             }
             Toggle("Fett", isOn: $style.bold)
             TVNumberSetting(title: "Größe", value: $style.size, range: 16...120, step: 1)
+            TVNumberSetting(title: "Zeilenabstand", value: Binding(get: { style.lineSpacing ?? 0 }, set: { style.lineSpacing = $0 }), range: -10...30, step: 1)
             TVNumberSetting(title: "Deckkraft", value: $style.opacity, range: 0.2...1, step: 0.05)
             TVNumberSetting(title: "Abstand unten (%)", value: $style.margin, range: 0...100, step: 1)
             Picker("Ausrichtung", selection: $style.alignment) { Text("Links").tag("left"); Text("Mitte").tag("center"); Text("Rechts").tag("right") }

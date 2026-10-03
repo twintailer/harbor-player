@@ -13,7 +13,14 @@ struct TVPlayerScreen: View {
     @State private var detail: Detail?
     @State private var closing = false
     @State private var replacing = false
-    @State private var preset = "off"
+    @AppStorage("tvAnimeSelection") private var preset = "auto"
+    @AppStorage("tvAnimeSavedMode") private var savedAnimeMode = "A"
+    @AppStorage("tvAnimeTier") private var animeTier = "balanced"
+    @AppStorage("tvAnimeProtection") private var animeProtection = true
+    @State private var scrubPosition: Double?
+    @State private var lastScrubMove = Date.distantPast
+    @State private var scrubDirection = 0
+    @State private var scrubRepeats = 0
     @State private var style = SubtitleSettings.load()
     @State private var skipped: Set<String> = []
     @State private var identity: PlaybackRequest?
@@ -63,17 +70,25 @@ struct TVPlayerScreen: View {
                     .font(.system(size: 12, design: .monospaced)).padding(8).background(.black)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .allowsHitTesting(false).accessibilityIdentifier("playbackDiagnostics")
+                Text(verbatim: "\(state.shaderCount)|\(state.droppedFrames)|\(state.animeStatus)")
+                    .font(.system(size: 12)).padding(8).background(.black)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false).accessibilityIdentifier("animeDiagnostics")
             }
             #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
         }.preferredColorScheme(.dark).tint(.white)
-            .onPlayPauseCommand { state.toggle(); reveal() }
+            .onPlayPauseCommand { commitScrub(); state.toggle(); reveal() }
             .onExitCommand {
                 if panel != nil { panel = nil; reveal() }
-                else if controls { controls = false; focus = .screen }
+                else if controls { commitScrub(); controls = false; focus = .screen }
                 else { close() }
             }
-            .onChange(of: focus) { _, _ in touch() }
+            .onChange(of: focus) { old, value in if old == .timeline && value != .timeline { commitScrub() }; touch() }
+            .onChange(of: state.duration) { old, value in if old == 0 && value > 0 { applyAnime() } }
+            .onChange(of: identity?.isAnime) { _, _ in if preset == "auto" { applyAnime() } }
+            .onChange(of: animeTier) { _, _ in applyAnime() }
+            .onChange(of: animeProtection) { _, _ in applyAnime() }
             .onChange(of: panel) { _, value in if value != nil { focus = nil } }
             .onChange(of: detail) { _, value in if value != nil { focus = nil } }
             .onChange(of: scenePhase) { _, phase in if phase != .active { state.controller?.property("pause", "yes") } }
@@ -127,14 +142,14 @@ struct TVPlayerScreen: View {
                 Spacer()
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(episodeTitle ?? PlaybackMetadataService.fallback(identity ?? request)).font(.system(size: 24, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
+                        Text(episodeTitle ?? PlaybackMetadataService.fallback(identity ?? request)).font(.system(size: 30, weight: .semibold)).lineLimit(1).accessibilityIdentifier("episodeTitle")
                         Spacer()
                         if state.animeActive { Label("Anime4K", systemImage: "sparkles").font(.callout).accessibilityIdentifier("animeActive") }
                     }
                     HStack(spacing: 12) {
                         HStack(spacing: 10) {
                             icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
-                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { state.toggle(); touch() }
+                            icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { commitScrub(); state.toggle(); touch() }
                                 .accessibilityValue(state.paused ? "paused" : "playing")
                             icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
                         }.focusSection()
@@ -147,21 +162,25 @@ struct TVPlayerScreen: View {
                             icon("gearshape", "Einstellungen", .settings) { detail = .preferences; touch() }
                         }.focusSection()
                     }.buttonStyle(TVPlaybackButtonStyle())
-                    Button { touch() } label: {
+                    Button { commitScrub(); touch() } label: {
                         GeometryReader { geometry in
                             ZStack(alignment: .leading) {
-                                Capsule().fill(.white.opacity(0.2))
-                                Capsule().fill(.white).frame(width: geometry.size.width * min(1, max(0, state.duration > 0 ? state.position / state.duration : 0)))
-                            }.frame(height: 4).frame(maxHeight: .infinity)
-                        }.frame(height: 18)
-                    }.buttonStyle(.plain).focused($focus, equals: .timeline).accessibilityLabel("Zeitleiste").accessibilityIdentifier("playbackTimeline")
-                        .accessibilityValue(clock(state.position))
+                                Capsule().fill(.white.opacity(0.25))
+                                Capsule().fill(.white).frame(width: geometry.size.width * min(1, max(0, state.duration > 0 ? (scrubPosition ?? state.position) / state.duration : 0)))
+                                if focus == .timeline {
+                                    Circle().fill(.white).frame(width: 18, height: 18)
+                                        .offset(x: max(0, min(geometry.size.width - 18, geometry.size.width * (state.duration > 0 ? (scrubPosition ?? state.position) / state.duration : 0) - 9)))
+                                }
+                            }.frame(height: focus == .timeline ? 7 : 5).frame(maxHeight: .infinity)
+                        }.frame(height: 30).contentShape(Rectangle())
+                    }.buttonStyle(TVTimelineButtonStyle()).focused($focus, equals: .timeline).accessibilityLabel("Zeitleiste").accessibilityIdentifier("playbackTimeline")
+                        .accessibilityValue(clock(scrubPosition ?? state.position))
                         .onMoveCommand { direction in
-                            if direction == .left { state.skip(-Double(seekSeconds)) }
-                            if direction == .right { state.skip(Double(seekSeconds)) }
+                            if direction == .left { scrub(-1) }
+                            if direction == .right { scrub(1) }
                             touch()
                         }
-                    HStack { Text(clock(state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text(clock(state.duration)) }.font(.system(size: 18).monospacedDigit()).foregroundStyle(.secondary)
+                    HStack { Text(clock(scrubPosition ?? state.position)).accessibilityIdentifier("playbackClock"); Spacer(); Text(clock(state.duration)) }.font(.system(size: 22).monospacedDigit()).foregroundStyle(.secondary)
                 }
             }.padding(.horizontal, 64).padding(.vertical, 42).buttonStyle(TVPlaybackButtonStyle())
         }.ignoresSafeArea()
@@ -178,9 +197,17 @@ struct TVPlayerScreen: View {
                     choice(String(format: "%g×", speed), selected: abs(state.speed - speed) < 0.01) { state.rate(speed); panel = nil }
                 }
             case .anime:
-                ForEach(["off", "fast", "A", "B", "C", "hq"], id: \.self) { value in
-                    choice(animeName(value), selected: preset == value) { preset = value; state.controller?.anime(value) }.accessibilityIdentifier("anime-" + value)
+                ForEach(["auto", "off", "fast"] + Anime4KPresets.modes, id: \.self) { value in
+                    choice(Anime4KPresets.label(value), selected: preset == value) {
+                        preset = value
+                        if Anime4KPresets.modes.contains(value) { savedAnimeMode = value }
+                        applyAnime()
+                    }.accessibilityIdentifier("anime-" + value)
                 }
+                Picker("Qualität", selection: $animeTier) { Text("Balanced · S-CNN").tag("balanced"); Text("Max Qualität · VL/M-CNN").tag("hq") }
+                Toggle("Leistungsschutz", isOn: $animeProtection)
+                Text("Balanced verwendet dieselben kompakten Ketten wie Harbor tvOS. VL/M kostet mehr GPU-Leistung. Über 1080p bleibt Anime4K aus; bei anhaltenden Frame-Drops wechselt der Leistungsschutz zu DTD. Auto nutzt den gespeicherten Modus für erkannte Anime.").font(.callout).foregroundStyle(.secondary)
+                Text(state.animeStatus).font(.callout)
             case .audio:
                 tracks("audio")
                 Button("Automatische Sprachauswahl") { state.controller?.applyLanguagePreferences() }
@@ -213,6 +240,7 @@ struct TVPlayerScreen: View {
             Text(state.skipStatus).foregroundStyle(.secondary)
             Text("Audio: \(state.audioOutput.isEmpty ? "Keine Ausgabe" : state.audioOutput) · \(Int(state.audioSampleRate)) Hz")
             Text("Puffer: \(Int(state.cacheAhead)) Sekunden · Decoder: \(state.hardwareDecoder)")
+            Text("\(state.animeStatus) · \(state.shaderCount) Shader · \(state.droppedFrames) verworfene Frames")
             Button("Zeiten erneut suchen") { lookupRevision += 1 }
             Toggle("Intro automatisch überspringen", isOn: $autoIntro)
             Toggle("Recap automatisch überspringen", isOn: $autoRecap)
@@ -256,11 +284,12 @@ struct TVPlayerScreen: View {
             if replacing { dismiss(); return }
             request = replacement; identity = nil
             state.buffering = true; state.duration = 0; state.segments = []; state.animeActive = false
-            state.speed = 1; preset = "off"; skipped = []; closing = false; reveal()
+            state.speed = 1; scrubPosition = nil; skipped = []; closing = false; reveal()
         }
         if let controller = state.controller { controller.shutdown(completion: replace) } else { replace() }
     }
     private func close() {
+        commitScrub()
         guard !closing else { return }; closing = true
         if let controller = state.controller {
             controller.finishPlayback { position, loaded in
@@ -271,18 +300,38 @@ struct TVPlayerScreen: View {
     }
     private func clock(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
     private func panelTitle(_ value: Panel) -> String { switch value { case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }
-    private func animeName(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
+    private func applyAnime() {
+        let mode = preset == "auto" ? ((identity ?? request).isAnime ? savedAnimeMode : "off") : preset
+        state.controller?.anime(mode, tier: animeTier, protection: animeProtection)
+    }
+    private func scrub(_ direction: Int) {
+        guard state.duration > 0 else { return }
+        if !state.paused { state.skip(Double(direction * seekSeconds)); return }
+        let now = Date()
+        scrubRepeats = direction == scrubDirection && now.timeIntervalSince(lastScrubMove) < 0.65 ? scrubRepeats + 1 : 0
+        scrubDirection = direction; lastScrubMove = now
+        let multiplier = scrubRepeats >= 8 ? 4 : (scrubRepeats >= 3 ? 2 : 1)
+        scrubPosition = min(state.duration, max(0, (scrubPosition ?? state.position) + Double(direction * seekSeconds * multiplier)))
+    }
+    private func commitScrub() {
+        if let target = scrubPosition { state.seek(target) }
+        scrubPosition = nil; scrubRepeats = 0
+    }
+}
+
+private struct TVTimelineButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { configuration.label.focusEffectDisabled() }
 }
 
 private struct TVPlaybackButtonStyle: ButtonStyle {
     @Environment(\.isFocused) private var focused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 22, weight: .medium))
-            .frame(width: 48, height: 48)
+        configuration.label.font(.system(size: 27, weight: .medium))
+            .frame(width: 62, height: 62)
             .foregroundStyle(focused ? Color.black : Color.white)
             .background(focused ? Color.white : Color.clear, in: Circle())
-            .tvGlass(24).focusEffectDisabled()
+            .tvGlass(31).focusEffectDisabled()
             .scaleEffect(focused ? 1.12 : 1)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: focused)
     }

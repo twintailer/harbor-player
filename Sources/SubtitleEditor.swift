@@ -14,6 +14,7 @@ struct SubtitleEditor: View {
             Button("Eigene Schrift importieren (TTF/OTF)") { importFont = true }
             Toggle("Fett", isOn: $style.bold)
             slider("Größe", value: $style.size, range: 16...120, step: 1)
+            slider("Zeilenabstand", value: Binding(get: { style.lineSpacing ?? 0 }, set: { style.lineSpacing = $0 }), range: -10...30, step: 1)
             slider("Deckkraft", value: $style.opacity, range: 0.2...1, step: 0.05)
             slider("Abstand unten (%)", value: $style.margin, range: 0...100, step: 1)
             Picker("Ausrichtung", selection: $style.alignment) { Text("Links").tag("left"); Text("Mitte").tag("center"); Text("Rechts").tag("right") }
