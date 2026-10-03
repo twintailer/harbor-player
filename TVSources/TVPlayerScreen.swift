@@ -158,6 +158,7 @@ struct TVPlayerScreen: View {
             .task(id: episodeTaskID) { await loadEpisodes() }
             .onChange(of: state.ended) { _, ended in if ended { advanceAtEnd() } }
             .onChange(of: metadataBusy) { _, busy in if !busy && state.ended { advanceAtEnd() } }
+            .onChange(of: account.credentials?.authKey) { _, _ in autoAttempt = nil }
             .sheet(isPresented: $accountSetup) { TVStremioLogin() }
             .alert("Folgenwechsel", isPresented: Binding(get: { navigationMessage != nil }, set: { if !$0 { navigationMessage = nil } })) {
                 if account.credentials == nil { Button("Stremio anmelden") { accountSetup = true } }
@@ -168,7 +169,7 @@ struct TVPlayerScreen: View {
         HStack(spacing: 10) {
             if isSeries {
                 icon("backward.end.fill", "Vorherige Folge", .previousEpisode) { changeEpisode(previousEpisode) }
-                    .disabled(navigating || metadataBusy || (previousEpisode == nil && account.credentials != nil))
+                    .disabled(navigating || metadataBusy || (previousEpisode == nil && !episodes.isEmpty))
                     .accessibilityIdentifier("previousEpisode")
             }
             icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
@@ -177,7 +178,7 @@ struct TVPlayerScreen: View {
             icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
             if isSeries {
                 icon("forward.end.fill", "Nächste Folge", .nextEpisode) { changeEpisode(nextEpisode) }
-                    .disabled(navigating || metadataBusy || (nextEpisode == nil && account.credentials != nil))
+                    .disabled(navigating || metadataBusy || (nextEpisode == nil && !episodes.isEmpty))
                     .accessibilityIdentifier("nextEpisode")
             }
         }.focusSection()
@@ -289,6 +290,9 @@ struct TVPlayerScreen: View {
             Text("Puffer: \(Int(state.cacheAhead)) Sekunden · Decoder: \(state.hardwareDecoder)")
             Text("\(state.animeStatus) · \(state.shaderCount) Shader · \(state.droppedFrames) verworfene Frames")
             Button("Zeiten erneut suchen") { lookupRevision += 1 }
+            if isSeries {
+                Button("Folgenliste erneut laden") { Task { autoAttempt = nil; await loadEpisodes() } }.disabled(metadataBusy || navigating)
+            }
             Toggle("Intro automatisch überspringen", isOn: $autoIntro)
             Toggle("Recap automatisch überspringen", isOn: $autoRecap)
             Toggle("Abspann automatisch überspringen", isOn: $autoOutro)
