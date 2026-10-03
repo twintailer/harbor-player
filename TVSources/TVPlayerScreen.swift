@@ -83,7 +83,7 @@ struct TVPlayerScreen: View {
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
         }
     }
-    var body: some View {
+    private var remoteEvents: some View {
         playerCanvas.preferredColorScheme(.dark).tint(.white)
             .onPlayPauseCommand { commitScrub(); state.toggle(); reveal() }
             .onExitCommand {
@@ -96,6 +96,9 @@ struct TVPlayerScreen: View {
             .onChange(of: identity?.isAnime) { _, _ in if preset == "auto" { applyAnime() } }
             .onChange(of: animeTier) { _, _ in applyAnime() }
             .onChange(of: animeProtection) { _, _ in applyAnime() }
+    }
+    private var playbackEvents: some View {
+        remoteEvents
             .onChange(of: panel) { _, value in if value != nil { focus = nil } }
             .onChange(of: detail) { _, value in if value != nil { focus = nil } }
             .onChange(of: scenePhase) { _, phase in if phase != .active { state.controller?.property("pause", "yes") } }
@@ -105,12 +108,12 @@ struct TVPlayerScreen: View {
             .onChange(of: audio) { _, _ in state.controller?.applyLanguagePreferences() }
             .onChange(of: subtitles) { _, _ in state.controller?.applyLanguagePreferences() }
             .onChange(of: forced) { _, _ in state.controller?.applyLanguagePreferences() }
-            .onAppear {
-                contentID = request.contentID; season = request.season.map(String.init) ?? ""; episode = request.episode.map(String.init) ?? ""
-                focus = .play; UIApplication.shared.isIdleTimerDisabled = true
-            }
+            .onAppear(perform: preparePlayback)
             .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
             .onReceive(pulse) { _ in updatePlaybackControls() }
+    }
+    var body: some View {
+        playbackEvents
             .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
             .task(id: "\((identity ?? request).contentID):\((identity ?? request).season ?? 0):\((identity ?? request).episode ?? 0)") {
                 let value = identity ?? request
@@ -270,6 +273,13 @@ struct TVPlayerScreen: View {
         state.skipStatus = segments.isEmpty ? "Keine passenden Zeitmarken verfügbar oder Dienst nicht erreichbar." : "\(segments.count) Abschnitte gefunden."
     }
     private func automatic(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoIntro; case .recap: return autoRecap; case .outro: return autoOutro } }
+    private func preparePlayback() {
+        contentID = request.contentID
+        season = request.season.map { String($0) } ?? ""
+        episode = request.episode.map { String($0) } ?? ""
+        focus = .play
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
     private func updatePlaybackControls() {
         let idle = Date().timeIntervalSince(interaction) > hideSeconds
         let playing = !state.paused && !state.buffering && state.duration > 0
