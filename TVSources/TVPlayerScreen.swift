@@ -74,6 +74,10 @@ struct TVPlayerScreen: View {
                     .font(.system(size: 12)).padding(8).background(.black)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .allowsHitTesting(false).accessibilityIdentifier("animeDiagnostics")
+                Text(verbatim: "\(state.subtitleOverride)|\(state.subtitleText)")
+                    .font(.system(size: 12)).padding(8).background(.black)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .allowsHitTesting(false).accessibilityIdentifier("subtitleDiagnostics")
             }
             #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }

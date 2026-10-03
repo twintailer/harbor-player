@@ -116,9 +116,13 @@ final class TVPlayerUITests: XCTestCase {
         var link = URLComponents(string: "infuse://x-callback-url/play")!
         link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "subtitle", value: "http://127.0.0.1:8765/styled.ass")]
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
         app.launch()
         let clock = app.staticTexts["playbackClock"]
         wait("ASS fixture plays") { self.seconds(clock) >= 12 }
+        wait("External styled ASS is decoded with full style stripping") {
+            app.staticTexts["subtitleDiagnostics"].label == "strip|FORCE STYLE TEST"
+        }
         remote.press(.playPause)
         wait("Paused for timeline") { app.buttons["Play-Pause"].value as? String == "paused" }
         let start = seconds(clock)

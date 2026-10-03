@@ -15,6 +15,8 @@ final class PlayerState: ObservableObject {
     @Published var animeStatus = ""
     @Published var shaderCount = 0
     @Published var droppedFrames = 0
+    @Published var subtitleText = ""
+    @Published var subtitleOverride = ""
     @Published var speed = 1.0
     @Published var audioOutput = ""
     @Published var audioSampleRate = 0.0
@@ -295,6 +297,7 @@ final class PlayerController: UIViewController {
         let cacheAhead = number("demuxer-cache-duration"), hardwareDecoder = string("hwdec-current")
         let dropped = Int(number("frame-drop-count"))
         let shaderCount = listCount("glsl-shaders")
+        let subtitleText = string("sub-text"), subtitleOverride = string("sub-ass-override")
         tick += 1
         #if os(tvOS)
         if animePreset != "off", Int(number("video-params/h")) != animeResolution { applyAnime() }
@@ -323,6 +326,7 @@ final class PlayerController: UIViewController {
             state.audioOutput = audioOutput; state.audioSampleRate = audioRate
             state.cacheAhead = cacheAhead; state.hardwareDecoder = hardwareDecoder
             state.shaderCount = shaderCount; state.droppedFrames = dropped
+            state.subtitleText = subtitleText; state.subtitleOverride = subtitleOverride
             if let tracks, tracks != state.tracks { state.tracks = tracks }
             if let chapters, chapters != state.chapters { state.chapters = chapters }
             if let error { state.error = error }
