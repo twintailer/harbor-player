@@ -42,7 +42,7 @@ struct TVPlayerScreen: View {
     enum Control: Hashable { case screen, close, info, back, play, forward, timeline, speed, anime, audio, subtitles, settings, skip }
     enum Panel: String, Identifiable { case speed, anime, audio, subtitles; var id: String { rawValue } }
     enum Detail: String, Identifiable { case preferences, subtitles, metadata; var id: String { rawValue } }
-    var body: some View {
+    private var playerCanvas: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             VideoSurface(request: request, state: state).id(request.id).ignoresSafeArea().allowsHitTesting(false)
@@ -77,7 +77,10 @@ struct TVPlayerScreen: View {
             }
             #endif
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
-        }.preferredColorScheme(.dark).tint(.white)
+        }
+    }
+    var body: some View {
+        playerCanvas.preferredColorScheme(.dark).tint(.white)
             .onPlayPauseCommand { commitScrub(); state.toggle(); reveal() }
             .onExitCommand {
                 if panel != nil { panel = nil; reveal() }
@@ -103,14 +106,7 @@ struct TVPlayerScreen: View {
                 focus = .play; UIApplication.shared.isIdleTimerDisabled = true
             }
             .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false }
-            .onReceive(pulse) { _ in
-                if controls && panel == nil && detail == nil && !state.paused && !state.buffering && state.duration > 0 && Date().timeIntervalSince(interaction) > hideSeconds {
-                    controls = false; focus = .screen
-                }
-                if let segment = state.currentSegment, !skipped.contains(segment.id), automatic(segment) {
-                    skipped.insert(segment.id); state.seek(segment.end)
-                }
-            }
+            .onReceive(pulse) { _ in updatePlaybackControls() }
             .task(id: "\(request.id):\(Int(state.duration)):\(state.chapters.hashValue):\(lookupRevision)") { await lookup() }
             .task(id: "\((identity ?? request).contentID):\((identity ?? request).season ?? 0):\((identity ?? request).episode ?? 0)") {
                 let value = identity ?? request
@@ -270,6 +266,14 @@ struct TVPlayerScreen: View {
         state.skipStatus = segments.isEmpty ? "Keine passenden Zeitmarken verfügbar oder Dienst nicht erreichbar." : "\(segments.count) Abschnitte gefunden."
     }
     private func automatic(_ segment: SkipSegment) -> Bool { switch segment.kind { case .intro: return autoIntro; case .recap: return autoRecap; case .outro: return autoOutro } }
+    private func updatePlaybackControls() {
+        let idle = Date().timeIntervalSince(interaction) > hideSeconds
+        let playing = !state.paused && !state.buffering && state.duration > 0
+        if controls && panel == nil && detail == nil && playing && idle { controls = false; focus = .screen }
+        if let segment = state.currentSegment, !skipped.contains(segment.id), automatic(segment) {
+            skipped.insert(segment.id); state.seek(segment.end)
+        }
+    }
     private func touch() { interaction = Date() }
     private func reveal() { controls = true; focus = .play; touch() }
     private func restoreAfterMenu() {
