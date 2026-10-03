@@ -12,6 +12,7 @@ final class TVPlayerUITests: XCTestCase {
         app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
         app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
         app.launchEnvironment["HARBOR_TEST_META_URL"] = "http://127.0.0.1:8765"
+        app.launchEnvironment["HARBOR_TEST_EPISODES_URL"] = "http://127.0.0.1:8765/cinemeta.json"
         app.launch()
         let clock = app.staticTexts["playbackClock"]
         wait("Playback resumes") { self.seconds(clock) >= 12 }
@@ -39,7 +40,7 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.select)
         wait("Remote skips backward") { abs(self.seconds(clock) - start) <= 1 }
         capture("Apple TV Liquid Glass player")
-        for _ in 0..<4 { remote.press(.right) }
+        for _ in 0..<3 { remote.press(.right) }
         XCTAssertTrue(app.buttons["Playback speed"].hasFocus)
         remote.press(.select)
         XCTAssertTrue(app.buttons["closeSettings"].waitForExistence(timeout: 10))
