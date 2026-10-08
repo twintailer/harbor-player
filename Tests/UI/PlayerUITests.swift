@@ -80,7 +80,13 @@ final class PlayerUITests: XCTestCase {
         // Tapping outside a floating menu dismisses it without pausing/seeking.
         app.buttons["Einstellungen"].tap()
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.4)).tap()
-        XCTAssertTrue(center.isHittable)
+        waitUntil("Floating menu fully dismisses") { !app.scrollViews["playerPanelScroll"].exists && center.exists }
+        // Exercise the action: iOS 27 may briefly report an invalid activation
+        // point to isHittable while the glass dismissal is finishing.
+        center.tap()
+        waitUntil("Playback button works after closing the menu") { center.label == "Pause" }
+        center.tap()
+        waitUntil("Pause restored before timeline test") { center.label == "Wiedergabe" }
         // The new narrow timeline still supports direct seeking.
         let timeline = app.descendants(matching: .any).matching(identifier: "playbackTimeline").firstMatch
         XCTAssertTrue(timeline.exists)

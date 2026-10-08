@@ -86,6 +86,9 @@ import AVKit
     }
 
     @discardableResult func finish() -> Position? {
+        // Other settings sheets use the same dismissal hook. Avoid publishing
+        // a fresh player layout when no AirPlay session was opened.
+        guard prepare != nil || player != nil || transferred != nil || loading || message != nil else { return nil }
         var result = transferred
         if seekFinished, let native = player {
             let seconds = native.currentTime().seconds
@@ -134,7 +137,7 @@ struct AirPlayScreen: View {
                         else {
                             Button {
                                 session.start(request.url, takePosition: takePosition)
-                            } label: { Label("Video im AirPlay-Systemplayer öffnen", systemImage: "airplay.video") }
+                            } label: { Label("Video im AirPlay-Systemplayer öffnen", systemImage: "airplay.video").foregroundStyle(.black) }
                                 .buttonStyle(.borderedProminent).disabled(session.loading).accessibilityIdentifier("startVideoAirPlay")
                             Text("Für kompatible Streams, etwa MP4 oder HLS. Danach oben das AirPlay-Gerät auswählen. Die aktuelle Abspielposition wird übernommen.")
                         }
