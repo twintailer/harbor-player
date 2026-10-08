@@ -143,6 +143,79 @@ final class PlayerUITests: XCTestCase {
         capture("Automatic intro and recap skipping")
         app.terminate()
     }
+    func testNativeAirPlayHandoffPreservesPositionAndPause() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30"]
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/fixture.mp4"), .init(name: "position", value: "12"), .init(name: "x-success", value: "stremio:///detail/movie/tt123")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launch()
+        let center = app.buttons["centerPlayPause"], clock = app.staticTexts["playbackClock"]
+        waitUntil("mpv playback resumes") { self.seconds(clock) >= 12 }
+        center.tap()
+        waitUntil("Pause before AirPlay") { center.label == "Wiedergabe" }
+        let pausedPosition = seconds(clock)
+        app.buttons["openAirPlay"].tap()
+        XCTAssertTrue(app.buttons["startVideoAirPlay"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["airPlayRoutePicker"].exists)
+        capture("AirPlay menu and system device picker")
+        app.buttons["startVideoAirPlay"].tap()
+        let native = app.staticTexts["airPlayPlaybackDiagnostics"]
+        waitUntil("Native handoff retains paused position") {
+            let values = native.label.split(separator: "|")
+            return values.count == 2 && abs((Int(values[0]) ?? -100) - pausedPosition) <= 1 && values[1] == "paused"
+        }
+        app.buttons["Fertig"].tap()
+        waitUntil("Return to mpv preserves paused state and position") { center.exists && center.label == "Wiedergabe" && abs(self.seconds(clock) - pausedPosition) <= 1 }
+        center.tap()
+        waitUntil("Resume local player") { center.label == "Pause" && self.seconds(clock) >= pausedPosition + 1 }
+        app.buttons["openAirPlay"].tap()
+        app.buttons["startVideoAirPlay"].tap()
+        waitUntil("Native system player advances from local position") {
+            let values = native.label.split(separator: "|")
+            return values.count == 2 && (Int(values[0]) ?? 0) >= pausedPosition + 3 && values[1] == "playing"
+        }
+        let transferredPosition = Int(native.label.split(separator: "|")[0])!
+        capture("AirPlay-compatible native playback")
+        app.buttons["Fertig"].tap()
+        waitUntil("mpv resumes at native position") { center.exists && center.label == "Pause" && self.seconds(clock) >= transferredPosition && self.seconds(clock) < transferredPosition + 10 }
+        center.tap()
+        waitUntil("Pause returned video") { center.label == "Wiedergabe" }
+        let finalPosition = seconds(clock)
+        app.buttons["Player schließen"].tap()
+        let callback = app.staticTexts["returnCallback"]
+        XCTAssertTrue(callback.waitForExistence(timeout: 15))
+        let parts = try XCTUnwrap(URLComponents(string: callback.label))
+        let position = try XCTUnwrap(parts.queryItems?.first { $0.name == "position" }?.value.flatMap(Int.init))
+        XCTAssertLessThanOrEqual(abs(position - finalPosition), 1, "Stremio receives position after native handoff")
+        app.terminate()
+    }
+
+    func testUnsupportedAirPlayStreamLeavesLocalPlaybackUsable() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30"]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = "http://127.0.0.1:8765/languages.mkv"
+        app.launch()
+        let center = app.buttons["centerPlayPause"], clock = app.staticTexts["playbackClock"]
+        waitUntil("MKV plays locally") { self.seconds(clock) >= 1 }
+        center.tap()
+        waitUntil("Pause MKV") { center.label == "Wiedergabe" }
+        let position = seconds(clock)
+        app.buttons["openAirPlay"].tap()
+        app.buttons["startVideoAirPlay"].tap()
+        XCTAssertTrue(app.staticTexts["airPlayError"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.descendants(matching: .any)["airPlayMirroringHelp"].exists)
+        capture("Unsupported native stream with mirroring fallback")
+        app.buttons["Fertig"].tap()
+        waitUntil("Unsupported handoff preserves local player") { center.exists && center.label == "Wiedergabe" && abs(self.seconds(clock) - position) <= 1 }
+        center.tap()
+        waitUntil("MKV can continue normally") { self.seconds(clock) >= position + 1 }
+        app.terminate()
+    }
+
     private func seconds(_ clock: XCUIElement) -> Int {
         guard clock.exists else { return -1 }
         let parts = clock.label.split(separator: ":").compactMap { Int($0) }

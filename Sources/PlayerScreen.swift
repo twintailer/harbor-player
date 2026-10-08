@@ -6,6 +6,8 @@ import CoreText
 struct PlayerScreen: View {
     @State var request: PlaybackRequest
     @StateObject private var state = PlayerState()
+    @StateObject private var airPlay = AirPlaySession()
+    @State private var nativeAirPlay = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var playbackReturn: PlaybackReturn
@@ -48,7 +50,7 @@ struct PlayerScreen: View {
     @AppStorage("seekSeconds") private var seekSeconds = 15
     private let pulse = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     enum Panel: String, Identifiable { case settings, speed, anime, audio, subtitles; var id: String { rawValue } }
-    enum Detail: String, Identifiable { case subtitles, preferences, metadata; var id: String { rawValue } }
+    enum Detail: String, Identifiable { case subtitles, preferences, metadata, airplay; var id: String { rawValue } }
 
     var body: some View {
         GeometryReader { geometry in
@@ -110,7 +112,7 @@ struct PlayerScreen: View {
             }.foregroundStyle(.white).tint(.white).buttonStyle(.plain)
         }
         .statusBarHidden().persistentSystemOverlays(.hidden)
-        .sheet(item: $detail, onDismiss: { touch() }) { selection in
+        .sheet(item: $detail, onDismiss: { restoreFromAirPlay(); touch() }) { selection in
             NavigationStack { detailContent(selection).navigationTitle(detailTitle(selection)).navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fertig") { detail = nil } } } }
                 .presentationDetents([.large]).presentationCornerRadius(30).preferredColorScheme(.dark).tint(.white)
                 .fileImporter(isPresented: $importFont, allowedContentTypes: [.font]) { result in importFontFile(result) }
@@ -121,7 +123,7 @@ struct PlayerScreen: View {
             UIApplication.shared.isIdleTimerDisabled = true
             contentID = request.contentID; season = request.season.map(String.init) ?? ""; episode = request.episode.map(String.init) ?? ""; anime = request.isAnime
         }
-        .onDisappear { state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false; if let originalBrightness { UIScreen.main.brightness = originalBrightness } }
+        .onDisappear { airPlay.finish(); state.controller?.shutdown(); UIApplication.shared.isIdleTimerDisabled = false; if let originalBrightness { UIScreen.main.brightness = originalBrightness } }
         .onChange(of: scenePhase) { _, value in if value != .active { state.controller?.property("pause", "yes") } }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in state.controller?.property("pause", "yes") }
         .onReceive(NotificationCenter.default.publisher(for: .harborReplacePlayback)) { _ in pendingExternalClose = true; closePlayer() }
@@ -139,7 +141,7 @@ struct PlayerScreen: View {
                 hud = nil
                 if !state.paused && !state.buffering && state.duration > 0 && panel == nil && detail == nil && !scrubbing { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { controls = false } }
             }
-            if let segment = state.currentSegment, !autoSkipped.contains(segment.id), shouldAutoSkip(segment) { autoSkipped.insert(segment.id); state.seek(segment.end) }
+            if !nativeAirPlay, let segment = state.currentSegment, !autoSkipped.contains(segment.id), shouldAutoSkip(segment) { autoSkipped.insert(segment.id); state.seek(segment.end) }
         }
         .task(id: lookupKey) { await lookup() }
         .task(id: "\((metadataIdentity ?? request).contentID):\((metadataIdentity ?? request).season ?? 0):\((metadataIdentity ?? request).episode ?? 0)") {
@@ -165,6 +167,8 @@ struct PlayerScreen: View {
                 HStack(spacing: 10) {
                     icon("xmark", "Player schließen") { closePlayer() }.harborGlass(interactive: true)
                     icon("info", "Medien und Intro-Erkennung") { openDetail(.metadata) }.harborGlass(interactive: true)
+                    icon("airplay.video", "AirPlay / Bildschirm übertragen") { openDetail(.airplay) }
+                        .harborGlass(interactive: true).accessibilityIdentifier("openAirPlay")
                     Spacer()
                     volumeControl
                 }
@@ -251,6 +255,13 @@ struct PlayerScreen: View {
     }
     @ViewBuilder private func detailContent(_ selection: Detail) -> some View {
         switch selection {
+        case .airplay:
+            AirPlayScreen(session: airPlay, request: request) {
+                nativeAirPlay = true
+                let position = AirPlaySession.Position(seconds: state.position, paused: state.paused, speed: state.speed)
+                state.controller?.property("pause", "yes")
+                return position
+            }
         case .preferences:
             Form {
                 LanguagePreferencesView()
@@ -340,7 +351,7 @@ struct PlayerScreen: View {
     private func timestamp(_ seconds: Double) -> String { let n = Int(max(0, seconds)); return n >= 3600 ? String(format: "%d:%02d:%02d", n / 3600, n / 60 % 60, n % 60) : String(format: "%d:%02d", n / 60, n % 60) }
     private func panelTitle(_ panel: Panel) -> String { switch panel { case .settings: return "Einstellungen"; case .speed: return "Wiedergabetempo"; case .anime: return "Anime4K"; case .audio: return "Audiosprache"; case .subtitles: return "Untertitel" } }
     private func panelSymbol(_ panel: Panel) -> String { switch panel { case .settings: return "gearshape"; case .speed: return "speedometer"; case .anime: return "sparkles.tv"; case .audio: return "waveform"; case .subtitles: return "captions.bubble" } }
-    private func detailTitle(_ detail: Detail) -> String { switch detail { case .preferences: return "Sprachen & Bedienung"; case .subtitles: return "Untertitel gestalten"; case .metadata: return "Medien & Skip Intro" } }
+    private func detailTitle(_ detail: Detail) -> String { switch detail { case .preferences: return "Sprachen & Bedienung"; case .subtitles: return "Untertitel gestalten"; case .metadata: return "Medien & Skip Intro"; case .airplay: return "AirPlay" } }
     private func animeLabel(_ value: String) -> String { switch value { case "off": return "Aus"; case "fast": return "Schnell · DTD"; case "hq": return "Hohe Qualität · Modus A"; default: return "Modus \(value) · Balanced" } }
     private func restart(_ url: URL) {
         guard !closing else { return }; closing = true
@@ -354,12 +365,20 @@ struct PlayerScreen: View {
     }
     private func closePlayer() {
         guard !closing else { return }; closing = true
+        let nativePosition = airPlay.finish()
         if let controller = state.controller {
             controller.finishPlayback { position, loaded in
-                if !pendingExternalClose { playbackReturn.prepare(request, position: position, loaded: loaded) }
+                if !pendingExternalClose { playbackReturn.prepare(request, position: nativePosition?.seconds ?? position, loaded: nativePosition != nil || loaded) }
                 dismiss()
             }
         } else { dismiss() }
+    }
+    private func restoreFromAirPlay() {
+        let position = airPlay.finish()
+        nativeAirPlay = false
+        guard !closing, let position else { return }
+        state.seek(position.seconds); state.rate(position.speed)
+        state.controller?.property("pause", position.paused ? "yes" : "no")
     }
     private func importFontFile(_ result: Result<URL, Error>) {
         do {
