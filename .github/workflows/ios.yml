@@ -19,7 +19,8 @@ permissions:
 jobs:
   build:
     if: github.event.repository.private == false
-    runs-on: macos-latest
+    # Same standard public-preview runner as tvOS; never the paid xlarge variant.
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +38,7 @@ jobs:
         run: xcodegen generate
       - name: Prepare iPhone Simulator
         run: |
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]))')
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS-27" in k for v in vs if "iPhone" in v["name"]))')
           echo "HARBOR_SIMULATOR_UDID=$DEVICE" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE"
       - name: Resolve packages
