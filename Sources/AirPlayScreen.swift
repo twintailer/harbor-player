@@ -53,6 +53,7 @@ import AVKit
                             }
                             let start = takePosition()
                             self.transferred = start; self.position = start.seconds; self.paused = start.paused
+                            native.defaultRate = Float(start.speed)
                             native.seek(to: CMTime(seconds: max(0, start.seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
                                 Task { @MainActor [weak self] in
                                     guard let self, token == self.generation, self.player === native else { return }
@@ -89,8 +90,9 @@ import AVKit
         if seekFinished, let native = player {
             let seconds = native.currentTime().seconds
             if seconds.isFinite && seconds >= 0 { result?.seconds = seconds }
-            result?.paused = native.timeControlStatus == .paused
+            if message == nil { result?.paused = native.timeControlStatus == .paused }
             if native.rate > 0 { result?.speed = Double(native.rate) }
+            else if message == nil { result?.speed = Double(native.defaultRate) }
         }
         generation = UUID(); prepare?.cancel(); prepare = nil
         statusObserver = nil; routeObserver = nil
@@ -121,7 +123,7 @@ struct AirPlayScreen: View {
                 NativeAirPlayPlayer(player: player).frame(maxWidth: .infinity, maxHeight: .infinity)
                 #if DEBUG
                 if ProcessInfo.processInfo.environment["HARBOR_TEST_CAPTURE_CALLBACK"] == "1" {
-                    Text("\(Int(session.position))|\(session.paused ? "paused" : "playing")")
+                    Text("\(Int(session.position))|\(session.paused ? "paused" : "playing")|\(session.loading ? "loading" : "ready")")
                         .font(.caption).accessibilityIdentifier("airPlayPlaybackDiagnostics")
                 }
                 #endif

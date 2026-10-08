@@ -164,8 +164,9 @@ final class PlayerUITests: XCTestCase {
         app.buttons["startVideoAirPlay"].tap()
         let native = app.staticTexts["airPlayPlaybackDiagnostics"]
         waitUntil("Native handoff retains paused position") {
+            guard native.exists else { return false }
             let values = native.label.split(separator: "|")
-            return values.count == 2 && abs((Int(values[0]) ?? -100) - pausedPosition) <= 1 && values[1] == "paused"
+            return values.count == 3 && abs((Int(values[0]) ?? -100) - pausedPosition) <= 1 && values[1] == "paused" && values[2] == "ready"
         }
         app.buttons["Fertig"].tap()
         waitUntil("Return to mpv preserves paused state and position") { center.exists && center.label == "Wiedergabe" && abs(self.seconds(clock) - pausedPosition) <= 1 }
@@ -174,8 +175,9 @@ final class PlayerUITests: XCTestCase {
         app.buttons["openAirPlay"].tap()
         app.buttons["startVideoAirPlay"].tap()
         waitUntil("Native system player advances from local position") {
+            guard native.exists else { return false }
             let values = native.label.split(separator: "|")
-            return values.count == 2 && (Int(values[0]) ?? 0) >= pausedPosition + 3 && values[1] == "playing"
+            return values.count == 3 && (Int(values[0]) ?? 0) >= pausedPosition + 3 && values[1] == "playing" && values[2] == "ready"
         }
         let transferredPosition = Int(native.label.split(separator: "|")[0])!
         capture("AirPlay-compatible native playback")
