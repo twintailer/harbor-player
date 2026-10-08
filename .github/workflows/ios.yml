@@ -80,7 +80,8 @@ jobs:
           python3 Tests/fixture_server.py --self-test
           python3 Tests/fixture_server.py >/tmp/fixture-server.log 2>&1 &
           xcrun simctl bootstatus "$HARBOR_SIMULATOR_UDID" -b
-          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -destination "platform=iOS Simulator,id=$HARBOR_SIMULATOR_UDID" -derivedDataPath build-simulator -clonedSourcePackagesDirPath spm -resultBundlePath ui-tests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log | tail -70
+          # Avoid the preview runner's hanging sysdiagnose, as in the tvOS workflow.
+          xcodebuild -project HarborPlayer.xcodeproj -scheme HarborPlayer -destination "platform=iOS Simulator,id=$HARBOR_SIMULATOR_UDID" -derivedDataPath build-simulator -clonedSourcePackagesDirPath spm -resultBundlePath ui-tests.xcresult -collect-test-diagnostics never -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test 2>&1 | tee ui-tests.log
       - name: Export UI screenshots
         if: always()
         run: |
