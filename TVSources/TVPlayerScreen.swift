@@ -148,7 +148,7 @@ struct TVPlayerScreen: View {
     private var episodeIndex: Int? { episodes.firstIndex { $0.season == episodeIdentity.season && $0.episodeNumber == episodeIdentity.episode } }
     private var previousEpisode: SeriesEpisode? { guard let i = episodeIndex, i > 0 else { return nil }; return episodes[i - 1] }
     private var nextEpisode: SeriesEpisode? { guard let i = episodeIndex, i + 1 < episodes.count else { return nil }; return episodes[i + 1] }
-    private var currentVideoID: String { episodeIndex.map { episodes[$0].id } ?? "\(episodeIdentity.contentID):\(episodeIdentity.season ?? 1):\(episodeIdentity.episode ?? 1)" }
+    private var currentVideoID: String { episodeIdentity.progressVideoID ?? episodeIndex.map { episodes[$0].id } ?? "\(episodeIdentity.contentID):\(episodeIdentity.season ?? 1):\(episodeIdentity.episode ?? 1)" }
     private var episodeTaskID: String {
         let providers = account.credentials?.addons.map { $0.transportUrl.absoluteString }.joined(separator: "|") ?? ""
         return "\(request.id):\(episodeIdentity.contentID):\(episodeIdentity.season ?? 0):\(episodeIdentity.episode ?? 0):\(providers)"
