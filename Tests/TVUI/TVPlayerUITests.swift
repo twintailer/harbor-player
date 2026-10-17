@@ -3,6 +3,53 @@ import CoreGraphics
 
 final class TVPlayerUITests: XCTestCase {
     private let remote = XCUIRemote.shared
+    func testAccountResumeAndSaveBeforeReturningToStremio() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "x-success", value: "stremio:///detail/series/tt987/tt987:1:2")]
+        app.launchArguments = ["-controlsHideSeconds", "30"]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launchEnvironment["HARBOR_TEST_STREMIO_API"] = "http://127.0.0.1:8765/api"
+        app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launchEnvironment["HARBOR_TEST_EPISODES_URL"] = "http://127.0.0.1:8765/cinemeta.json"
+        app.launch()
+        let clock = app.staticTexts["playbackClock"]
+        wait("Account milliseconds resume at 24 seconds") { self.seconds(clock) >= 24 && self.seconds(clock) < 40 }
+        wait("Playback advances beyond original bookmark") { self.seconds(clock) >= 28 }
+        remote.press(.playPause)
+        wait("Pause before saving") { app.buttons["Play-Pause"].value as? String == "paused" }
+        let saved = seconds(clock)
+        capture("Apple TV resumes matching Stremio account bookmark")
+        remote.press(.menu); remote.press(.menu)
+        XCTAssertTrue(app.staticTexts["returnCallback"].waitForExistence(timeout: 25))
+        app.terminate()
+        app.launch()
+        wait("Reopening uses the saved account position") { self.seconds(clock) >= saved && self.seconds(clock) <= saved + 6 }
+        app.terminate()
+    }
+
+    func testAccountResumeHonorsExplicitPositionAndEpisodeIdentity() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        for (id, position, minimum, maximum) in [("tt987", Optional("12"), 12, 20), ("tt987", Optional("0"), 1, 10), ("tt986", nil, 1, 10)] {
+            var link = URLComponents(string: "infuse://x-callback-url/play")!
+            link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "x-success", value: "stremio:///detail/series/\(id)/\(id):1:2")]
+            if let position { link.queryItems!.append(.init(name: "position", value: position)) }
+            app.launchArguments = ["-controlsHideSeconds", "30"]
+            app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+            app.launchEnvironment["HARBOR_TEST_STREMIO_API"] = "http://127.0.0.1:8765/api"
+            app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
+            app.launchEnvironment["HARBOR_TEST_EPISODES_URL"] = "http://127.0.0.1:8765/cinemeta.json"
+            app.launch()
+            let clock = app.staticTexts["playbackClock"]
+            wait("Expected start position") { self.seconds(clock) >= minimum }
+            XCTAssertLessThan(seconds(clock), maximum)
+            app.terminate()
+        }
+    }
+
     func testRemotePlaybackSettingsAndStremioReturn() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

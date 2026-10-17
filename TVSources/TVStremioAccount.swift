@@ -63,6 +63,21 @@ import Security
         revision = UUID(); SecItemDelete(query as CFDictionary)
         credentials = nil; message = nil
     }
+    func resumed(_ request: PlaybackRequest) async -> PlaybackRequest {
+        // An explicit link position (including a deliberate restart at zero) wins.
+        guard !request.startSupplied, request.start == 0, request.progressVideoID != nil, let value = credentials else { return request }
+        let token = revision
+        do {
+            guard let records = try await api.post("datastoreGet", ["authKey": value.authKey, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]] else { throw StremioAPI.Failure.network }
+            guard token == revision, !Task.isCancelled else { return request }
+            var result = request
+            if let position = records.compactMap({ StremioProgress.seconds(record: $0, request: request) }).first { result.start = position }
+            return result
+        } catch {
+            if token == revision { message = "Der gespeicherte Stremio-Fortschritt konnte nicht geladen werden. Die Position im Startlink wird verwendet." }
+            return request
+        }
+    }
     func save(_ request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool) async {
         guard let value = credentials else { return }
         do { try await api.saveProgress(key: value.authKey, request: request, videoID: videoID, position: position, duration: duration, completed: completed) }

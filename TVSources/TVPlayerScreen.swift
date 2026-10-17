@@ -361,11 +361,13 @@ struct TVPlayerScreen: View {
         commitScrub()
         guard !closing else { return }; closing = true
         if let controller = state.controller {
-            let snapshot = episodeIdentity, video = currentVideoID, duration = state.duration, completed = state.ended
+            let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID, duration = state.duration, completed = state.ended
             controller.finishPlayback { position, loaded in
                 if !replacing { playbackReturn.prepare(request, position: position, loaded: loaded) }
-                if loaded && isSeries { Task { await account.save(snapshot, videoID: video, position: position, duration: duration, completed: completed) } }
-                dismiss()
+                Task { @MainActor in
+                    if loaded, let video { await account.save(snapshot, videoID: video, position: position, duration: duration, completed: completed) }
+                    dismiss()
+                }
             }
         } else { dismiss() }
     }

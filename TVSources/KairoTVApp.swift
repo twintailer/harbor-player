@@ -1,6 +1,9 @@
 import SwiftUI
 
 @main struct KairoTVApp: App {
+    @StateObject private var account = TVStremioAccount.shared
+    @State private var opening = false
+    @State private var openRevision = UUID()
     @StateObject private var playbackReturn = PlaybackReturn()
     @State private var request: PlaybackRequest?
     @State private var pending: PlaybackRequest?
@@ -26,7 +29,10 @@ import SwiftUI
                         Button("Einstellungen") { preferences = true }
                     }
                     Text("In Stremio als externen Player „Infuse“ auswählen. Kairo übernimmt Stream und Abspielposition, wenn Stremio diese übergibt. Die originale Infuse-App darf nicht gleichzeitig installiert sein.").font(.callout).foregroundStyle(.secondary)
+                    Text("Fehlt die Position im Startlink, lädt Kairo sie aus deinem Stremio-Konto. Melde dich dafür in Einstellungen → Stremio-Konto & Addons mit demselben Konto an.").font(.callout).foregroundStyle(.secondary)
                     Text("Play/Pause: Wiedergabe steuern · Auswahl: Bedienleiste öffnen · Links/Rechts bei ausgeblendeter Leiste: springen · Zurück: Leiste schließen, danach Player verlassen.").font(.callout).foregroundStyle(.secondary)
+                    if opening { ProgressView("Stremio-Fortschritt laden ...") }
+                    if let message = account.message { Text(message).font(.footnote) }
                     if let message = playbackReturn.message { Text(message).font(.footnote) }
                     if playbackReturn.retryURL != nil { Button("Position erneut an Stremio übergeben") { playbackReturn.retry() } }
                     #if DEBUG
@@ -63,9 +69,15 @@ import SwiftUI
     }
     private func open(_ url: URL) {
         do {
-            let next = try PlaybackRequest.parse(url)
-            if request != nil { pending = next; NotificationCenter.default.post(name: .harborReplacePlayback, object: nil) }
-            else { request = next }
+            let parsed = try PlaybackRequest.parse(url)
+            let token = UUID(); openRevision = token; opening = true
+            Task { @MainActor in
+                let next = await account.resumed(parsed)
+                guard token == openRevision else { return }
+                opening = false
+                if request != nil { pending = next; NotificationCenter.default.post(name: .harborReplacePlayback, object: nil) }
+                else { request = next }
+            }
         } catch { self.error = error.localizedDescription }
     }
 }
