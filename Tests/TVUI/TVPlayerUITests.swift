@@ -3,6 +3,33 @@ import CoreGraphics
 
 final class TVPlayerUITests: XCTestCase {
     private let remote = XCUIRemote.shared
+    func testHoldingSeekButtonResumesPlayingAndClampsAtStart() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30", "-seekSeconds", "1", "-tvAnimeSelection", "off"]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = "infuse://x-callback-url/play?url=http%3A%2F%2F127.0.0.1%3A8765%2Flanguages.mkv&position=12"
+        app.launch()
+        let clock = app.staticTexts["playbackClock"]
+        wait("Playback starts") { self.seconds(clock) >= 12 }
+        remote.press(.right)
+        wait("Forward button focused") { app.buttons["Vorspringen"].hasFocus }
+        let start = seconds(clock)
+        remote.press(.select, forDuration: 1.8)
+        wait("Holding forward seeks and restores playing state") {
+            self.seconds(clock) >= start + 7 && app.buttons["Play-Pause"].value as? String == "playing" && !app.staticTexts["holdSeekPreview"].exists
+        }
+        remote.press(.playPause)
+        wait("Pause for boundary test") { app.buttons["Play-Pause"].value as? String == "paused" }
+        // Play/Pause reveals controls and focuses the play button.
+        remote.press(.left)
+        wait("Back button focused") { app.buttons["Zurückspringen"].hasFocus }
+        remote.press(.select, forDuration: 5)
+        wait("Long rewind clamps at zero and remains paused") {
+            self.seconds(clock) == 0 && app.buttons["Play-Pause"].value as? String == "paused" && !app.staticTexts["holdSeekPreview"].exists
+        }
+        app.terminate()
+    }
+
     func testHoldAcceleratesTimelineAndStopsOnRelease() {
         continueAfterFailure = false
         let app = XCUIApplication()

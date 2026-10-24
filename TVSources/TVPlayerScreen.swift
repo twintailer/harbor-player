@@ -30,6 +30,7 @@ struct TVPlayerScreen: View {
     @State private var holdWasPaused = false
     @State private var holdMultiplier = 1
     @State private var holdDirection = 1
+    @State private var holdReleasedAt = Date.distantPast
     @State private var scrubPosition: Double?
     @State private var lastScrubMove = Date.distantPast
     @State private var scrubDirection = 0
@@ -95,7 +96,7 @@ struct TVPlayerScreen: View {
             }
             #endif
             if holdingSeek {
-                Text("\(holdDirection > 0 ? "Vor" : "Zurueck") \(holdMultiplier)\u{00d7}  \(clock(scrubPosition ?? state.position))")
+                Text("\(holdDirection > 0 ? "Vor" : "Zurück") \(holdMultiplier)×  \(clock(scrubPosition ?? state.position))")
                     .font(.title2.monospacedDigit()).padding(18).tvGlass()
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(.top, 40)
                     .allowsHitTesting(false).accessibilityIdentifier("holdSeekPreview")
@@ -187,10 +188,10 @@ struct TVPlayerScreen: View {
                     .disabled(navigating || metadataBusy || (previousEpisode == nil && !episodes.isEmpty))
                     .accessibilityIdentifier("previousEpisode")
             }
-            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { state.skip(-Double(seekSeconds)); touch() }
+            icon("gobackward.\(seekSeconds)", "Zurückspringen", .back) { seekButton(-1) }
             icon(state.paused ? "play.fill" : "pause.fill", "Play-Pause", .play) { commitScrub(); state.toggle(); touch() }
                 .accessibilityValue(state.paused ? "paused" : "playing")
-            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { state.skip(Double(seekSeconds)); touch() }
+            icon("goforward.\(seekSeconds)", "Vorspringen", .forward) { seekButton(1) }
             if isSeries {
                 icon("forward.end.fill", "Nächste Folge", .nextEpisode) { changeEpisode(nextEpisode) }
                     .disabled(navigating || metadataBusy || (nextEpisode == nil && !episodes.isEmpty))
@@ -452,6 +453,10 @@ struct TVPlayerScreen: View {
         let multiplier = scrubRepeats >= 8 ? 4 : (scrubRepeats >= 3 ? 2 : 1)
         scrubPosition = min(state.duration, max(0, (scrubPosition ?? state.position) + Double(direction * seekSeconds * multiplier)))
     }
+    private func seekButton(_ direction: Int) {
+        guard !holdingSeek, Date().timeIntervalSince(holdReleasedAt) > 0.3 else { return }
+        state.skip(Double(direction * seekSeconds)); touch()
+    }
     private func holdSeekDirection(_ press: UIPress.PressType) -> Int? {
         if press == .select { return focus == .back ? -1 : (focus == .forward ? 1 : nil) }
         guard focus == .timeline || (!controls && focus == .screen) else { return nil }
@@ -471,7 +476,7 @@ struct TVPlayerScreen: View {
     private func endHoldSeek(_ cancelled: Bool) {
         guard holdingSeek else { return }
         if !cancelled, let target = scrubPosition { state.seek(target) }
-        scrubPosition = nil; scrubRepeats = 0; holdingSeek = false
+        scrubPosition = nil; scrubRepeats = 0; holdingSeek = false; holdReleasedAt = Date()
         if !closing && scenePhase == .active { state.controller?.property("pause", holdWasPaused ? "yes" : "no") }
         touch()
     }
