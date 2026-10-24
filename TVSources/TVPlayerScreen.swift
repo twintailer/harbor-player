@@ -26,6 +26,10 @@ struct TVPlayerScreen: View {
     @AppStorage("tvAnimeSavedMode") private var savedAnimeMode = "A"
     @AppStorage("tvAnimeTier") private var animeTier = "balanced"
     @AppStorage("tvAnimeProtection") private var animeProtection = true
+    @State private var holdingSeek = false
+    @State private var holdWasPaused = false
+    @State private var holdMultiplier = 1
+    @State private var holdDirection = 1
     @State private var scrubPosition: Double?
     @State private var lastScrubMove = Date.distantPast
     @State private var scrubDirection = 0
@@ -61,6 +65,7 @@ struct TVPlayerScreen: View {
                     .onTapGesture { reveal() }
                     .accessibilityLabel("Bedienleiste öffnen").accessibilityAddTraits(.isButton)
                     .onMoveCommand { direction in
+                        guard !holdingSeek else { return }
                         if direction == .left { state.skip(-Double(seekSeconds)) }
                         else if direction == .right { state.skip(Double(seekSeconds)) }
                         else { reveal() }
@@ -89,12 +94,22 @@ struct TVPlayerScreen: View {
                     .allowsHitTesting(false).accessibilityIdentifier("subtitleDiagnostics")
             }
             #endif
+            if holdingSeek {
+                Text("\(holdDirection > 0 ? "Vor" : "Zurueck") \(holdMultiplier)\u{00d7}  \(clock(scrubPosition ?? state.position))")
+                    .font(.title2.monospacedDigit()).padding(18).tvGlass()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(.top, 40)
+                    .allowsHitTesting(false).accessibilityIdentifier("holdSeekPreview")
+            }
             if closing { ProgressView("Schließen …").padding(30).tvGlass() }
             if navigating { ProgressView("Folge laden …").padding(24).tvGlass().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(64) }
         }
     }
     private var remoteEvents: some View {
-        playerCanvas.preferredColorScheme(.dark).tint(.white)
+        playerCanvas.background {
+            TVHoldSeek(enabled: !closing && !navigating && panel == nil && detail == nil && !accountSetup && scenePhase == .active && state.duration > 0,
+                       direction: holdSeekDirection, begin: beginHoldSeek, advance: advanceHoldSeek, end: endHoldSeek)
+                .frame(width: 0, height: 0)
+        }.preferredColorScheme(.dark).tint(.white)
             .onPlayPauseCommand { commitScrub(); state.toggle(); reveal() }
             .onExitCommand {
                 if panel != nil { panel = nil; reveal() }
@@ -429,7 +444,7 @@ struct TVPlayerScreen: View {
         state.controller?.anime(mode, tier: animeTier, protection: animeProtection)
     }
     private func scrub(_ direction: Int) {
-        guard state.duration > 0 else { return }
+        guard state.duration > 0, !holdingSeek else { return }
         if !state.paused { state.skip(Double(direction * seekSeconds)); return }
         let now = Date()
         scrubRepeats = direction == scrubDirection && now.timeIntervalSince(lastScrubMove) < 0.65 ? scrubRepeats + 1 : 0
@@ -437,7 +452,31 @@ struct TVPlayerScreen: View {
         let multiplier = scrubRepeats >= 8 ? 4 : (scrubRepeats >= 3 ? 2 : 1)
         scrubPosition = min(state.duration, max(0, (scrubPosition ?? state.position) + Double(direction * seekSeconds * multiplier)))
     }
+    private func holdSeekDirection(_ press: UIPress.PressType) -> Int? {
+        if press == .select { return focus == .back ? -1 : (focus == .forward ? 1 : nil) }
+        guard focus == .timeline || (!controls && focus == .screen) else { return nil }
+        return press == .leftArrow ? -1 : (press == .rightArrow ? 1 : nil)
+    }
+    private func beginHoldSeek(_ direction: Int) {
+        holdWasPaused = state.paused; holdingSeek = true; holdDirection = direction
+        scrubPosition = scrubPosition ?? state.position
+        state.controller?.property("pause", "yes"); touch()
+    }
+    private func advanceHoldSeek(_ direction: Int, _ elapsed: Double) {
+        guard holdingSeek else { return }
+        holdMultiplier = elapsed >= 5 ? 8 : (elapsed >= 2.5 ? 4 : (elapsed >= 1 ? 2 : 1))
+        scrubPosition = min(state.duration, max(0, (scrubPosition ?? state.position) + Double(direction * seekSeconds * holdMultiplier)))
+        touch()
+    }
+    private func endHoldSeek(_ cancelled: Bool) {
+        guard holdingSeek else { return }
+        if !cancelled, let target = scrubPosition { state.seek(target) }
+        scrubPosition = nil; scrubRepeats = 0; holdingSeek = false
+        if !closing && scenePhase == .active { state.controller?.property("pause", holdWasPaused ? "yes" : "no") }
+        touch()
+    }
     private func commitScrub() {
+        guard !holdingSeek else { return }
         if let target = scrubPosition { state.seek(target) }
         scrubPosition = nil; scrubRepeats = 0
     }

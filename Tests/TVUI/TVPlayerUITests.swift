@@ -3,6 +3,37 @@ import CoreGraphics
 
 final class TVPlayerUITests: XCTestCase {
     private let remote = XCUIRemote.shared
+    func testHoldAcceleratesTimelineAndStopsOnRelease() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30", "-seekSeconds", "1", "-tvAnimeSelection", "off"]
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12")]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launch()
+        let clock = app.staticTexts["playbackClock"]
+        wait("Playback starts") { self.seconds(clock) >= 12 }
+        remote.press(.playPause)
+        wait("Paused") { app.buttons["Play-Pause"].value as? String == "paused" }
+        remote.press(.down)
+        wait("Timeline focused") { app.buttons["playbackTimeline"].hasFocus }
+        let start = seconds(clock)
+        remote.press(.right, forDuration: 0.9)
+        wait("Short hold seeks repeatedly") { self.seconds(clock) >= start + 2 && !app.staticTexts["holdSeekPreview"].exists }
+        let afterShort = seconds(clock), shortDistance = afterShort - start
+        remote.press(.right, forDuration: 2.8)
+        wait("Longer hold accelerates") { self.seconds(clock) - afterShort > shortDistance * 3 && !app.staticTexts["holdSeekPreview"].exists }
+        XCTAssertEqual(app.buttons["Play-Pause"].value as? String, "paused")
+        let stopped = seconds(clock)
+        // A retained repeat timer would continue changing the paused position.
+        let stable = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.seconds(clock) != stopped }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [stable], timeout: 1.0), .timedOut)
+        remote.press(.left, forDuration: 1.2)
+        wait("Holding left rewinds") { self.seconds(clock) < stopped - 3 && !app.staticTexts["holdSeekPreview"].exists }
+        capture("Accelerated remote seek preserves paused playback")
+        app.terminate()
+    }
+
     func testAccountResumeAndSaveBeforeReturningToStremio() {
         continueAfterFailure = false
         let app = XCUIApplication()
