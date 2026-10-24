@@ -348,7 +348,7 @@ struct TVPlayerScreen: View {
         let idle = Date().timeIntervalSince(interaction) > hideSeconds
         let playing = !state.paused && !state.buffering && state.duration > 0
         if controls && panel == nil && detail == nil && playing && idle { controls = false; focus = .screen }
-        if let segment = state.currentSegment, !skipped.contains(segment.id), automatic(segment) {
+        if !holdingSeek, let segment = state.currentSegment, !skipped.contains(segment.id), automatic(segment) {
             skipped.insert(segment.id); state.seek(segment.end)
         }
     }

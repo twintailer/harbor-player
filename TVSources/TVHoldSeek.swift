@@ -54,6 +54,11 @@ struct TVHoldSeek: UIViewRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive press: UIPress) -> Bool {
             owner.enabled && owner.direction(press.type) != nil
         }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            // SwiftUI uses its own recognizers for focus moves and button clicks.
+            // Those must not cancel a hold before its 0.4-second threshold.
+            true
+        }
         @objc private func held(_ gesture: UILongPressGestureRecognizer) {
             switch gesture.state {
             case .began:
