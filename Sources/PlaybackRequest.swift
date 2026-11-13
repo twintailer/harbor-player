@@ -56,6 +56,7 @@ struct PlaybackRequest: Identifiable, Equatable {
     /// Native Stremio's Infuse protocol carries the media identity in x-success,
     /// not in standalone id/season/episode parameters.
     mutating func inferContentIdentity() {
+        var identityFromCallback = false
         if let callback = successCallback, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) {
             let route = PlaybackCallback.routePath(parts)
             let fields = route.split(separator: "/").map(String.init)
@@ -68,6 +69,7 @@ struct PlaybackRequest: Identifiable, Equatable {
                 // Preserve opaque addon IDs (including tmdb:123) byte-for-byte.
                 if contentID.isEmpty { contentID = meta }
                 if contentID == meta {
+                    identityFromCallback = true
                     if video.hasPrefix(meta + ":") {
                         let numbers = video.dropFirst(meta.count + 1).split(separator: ":").compactMap { Int($0) }
                         if numbers.count >= 2 { season = season ?? numbers[0]; episode = episode ?? numbers[1] }
@@ -76,7 +78,7 @@ struct PlaybackRequest: Identifiable, Equatable {
                 }
             }
         }
-        if !contentID.isEmpty, successCallback == nil { applyIdentity(contentID, video: contentID, type: nil) }
+        if !contentID.isEmpty, !identityFromCallback { applyIdentity(contentID, video: contentID, type: nil) }
         if contentType != "movie", season == nil || episode == nil {
             let text = title.removingPercentEncoding ?? title
             if let range = text.range(of: #"(?i)\bS(\d{1,3})[ ._-]*E(\d{1,4})\b"#, options: .regularExpression) {
