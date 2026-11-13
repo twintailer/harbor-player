@@ -4,7 +4,7 @@ extension PlaybackRequest {
     var progressVideoID: String? {
         guard !contentID.isEmpty else { return nil }
         if let callback = successCallback, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) {
-            let path = parts.scheme == "https" ? parts.fragment.flatMap { URLComponents(string: $0)?.path } ?? parts.path : parts.path
+            let path = PlaybackCallback.routePath(parts)
             let fields = path.split(separator: "/").map(String.init)
             if let index = fields.firstIndex(of: "detail"), fields.count > index + 3, fields[index + 2] == contentID {
                 return fields[index + 3]

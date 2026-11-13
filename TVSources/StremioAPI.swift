@@ -1,4 +1,5 @@
 import Foundation
+import zlib
 
 struct StremioAddon: Codable, Equatable {
     var transportUrl: URL
@@ -57,13 +58,17 @@ struct StremioAPI {
     var base = URL(string: "https://api.strem.io/api")!
     var session = URLSession.shared
     enum Failure: LocalizedError {
-        case login, network, noStream, noMetadata
+        case login, network, noStream, noMetadata, invalidProgress, unconfirmedSave
+        case rejected(String, Int)
         var errorDescription: String? {
             switch self {
             case .login: return "Anmeldung fehlgeschlagen. Bitte E-Mail und Passwort prüfen."
             case .network: return "Stremio ist gerade nicht erreichbar. Bitte erneut versuchen."
             case .noStream: return "Deine Addons liefern keine direkt abspielbare HTTP-Quelle für diese Folge. Reine Torrent-Quellen benötigen einen Streaming-Server."
             case .noMetadata: return "Die Episodenliste konnte nicht geladen werden."
+            case .invalidProgress: return "Die Folge oder ihre Abspielposition konnte nicht eindeutig erkannt werden."
+            case .unconfirmedSave: return "Stremio hat den gespeicherten Fortschritt beim Zurücklesen nicht bestätigt."
+            case .rejected(let method, let code): return "Stremio hat \(method) abgelehnt (Code \(code)). Bitte die Anmeldung prüfen."
             }
         }
     }
@@ -74,8 +79,14 @@ struct StremioAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                  let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any], envelope["error"] == nil,
+            guard let http = response as? HTTPURLResponse else { throw Failure.network }
+            guard (200..<300).contains(http.statusCode) else { throw Failure.rejected(method, http.statusCode) }
+            guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.network }
+            if let error = envelope["error"], !(error is NSNull) {
+                if method == "login" { throw Failure.login }
+                throw Failure.rejected(method, (error as? [String: Any])?["code"] as? Int ?? 0)
+            }
+            guard
                   let result = envelope["result"] else { throw method == "login" ? Failure.login : Failure.network }
             return result
         } catch is CancellationError { throw CancellationError() }
@@ -94,17 +105,26 @@ struct StremioAPI {
         // One unsupported manifest must not discard all other installed addons.
         return values.compactMap { try? JSONDecoder().decode(StremioAddon.self, from: JSONSerialization.data(withJSONObject: $0)) }
     }
-    func saveProgress(key: String, request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool) async throws {
+    func saveProgress(key: String, request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool, addons: [StremioAddon] = []) async throws {
         guard !request.contentID.isEmpty, position.isFinite, duration.isFinite, position >= 0, duration > 0,
-              position < 315_576_000, duration < 315_576_000 else { return }
+              !videoID.isEmpty, position < 315_576_000, duration < 315_576_000 else { throw Failure.invalidProgress }
+        let watched = completed || position / duration >= 0.9
+        // Use the complete metadata list, including specials and future episodes.
+        // The navigation list intentionally filters those and cannot index Stremio's bitmap.
+        let videos = watched && request.contentType != "movie"
+            ? try await TVEpisodeService(session: session).watchedVideos(request, videoID: videoID, addons: addons) : []
         // A failed read must never turn into an overwrite of an existing bookmark.
         guard let records = try await post("datastoreGet", ["authKey": key, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]] else { throw Failure.network }
-        let now = ISO8601DateFormatter().string(from: Date())
-        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": request.contentType == "movie" ? "movie" : "series", "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = formatter.string(from: Date())
+        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": request.contentType ?? "series", "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
         var state = record["state"] as? [String: Any] ?? [:]
         let changed = (state["video_id"] as? String).map { $0 != videoID } ?? false
         let oldFlag = (state["flaggedWatched"] as? NSNumber)?.intValue ?? 0
-        let watched = completed || position / duration >= 0.9
+        if !videos.isEmpty {
+            state["watched"] = try StremioWatched.mark(state["watched"] as? String, videoID: videoID, videos: videos)
+        }
         state["overallTimeWatched"] = ((state["overallTimeWatched"] as? NSNumber)?.doubleValue ?? 0) + (changed ? ((state["timeWatched"] as? NSNumber)?.doubleValue ?? 0) : 0)
         state["timesWatched"] = ((state["timesWatched"] as? NSNumber)?.intValue ?? 0) + (watched && (changed || oldFlag == 0) ? 1 : 0)
         state["flaggedWatched"] = watched ? 1 : (changed ? 0 : oldFlag)
@@ -116,6 +136,77 @@ struct StremioAPI {
         if state["noNotif"] == nil { state["noNotif"] = false }
         record["state"] = state; record["_mtime"] = now
         _ = try await post("datastorePut", ["authKey": key, "collection": "libraryItem", "changes": [record]])
+        guard let saved = try await post("datastoreGet", ["authKey": key, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]],
+              let confirmed = saved.first(where: { $0["_id"] as? String == request.contentID })?["state"] as? [String: Any],
+              confirmed["video_id"] as? String == videoID,
+              (confirmed["timeOffset"] as? NSNumber)?.intValue == (state["timeOffset"] as? Int),
+              (confirmed["duration"] as? NSNumber)?.intValue == (state["duration"] as? Int),
+              confirmed["watched"] as? String == state["watched"] as? String else { throw Failure.unconfirmedSave }
+    }
+}
+
+/// Retry records deliberately omit stream URLs, callbacks and authentication keys.
+struct StremioPendingProgress: Codable {
+    var contentID: String
+    var contentType: String?
+    var title: String
+    var season: Int?
+    var episode: Int?
+    var videoID: String
+    var position: Double
+    var duration: Double
+    var completed: Bool
+    var request: PlaybackRequest {
+        PlaybackRequest(url: URL(string: "https://example.invalid/pending")!, title: title, contentID: contentID, season: season, episode: episode, contentType: contentType)
+    }
+    init(_ request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool) {
+        contentID = request.contentID; contentType = request.contentType; title = request.title
+        season = request.season; episode = request.episode; self.videoID = videoID
+        self.position = position; self.duration = duration; self.completed = completed
+    }
+}
+
+/// Stremio's WatchedField: anchor video ID, one-based anchor index, zlib/base64 bitmap.
+/// Bits are least-significant first. See Stremio/stremio-core/stremio-watched-bitfield.
+enum StremioWatched {
+    static func mark(_ existing: String?, videoID: String, videos: [SeriesEpisode]) throws -> String {
+        let ids = videos.sorted {
+            let a = ($0.season ?? Int.min, $0.episodeNumber ?? Int.min, $0.released ?? "")
+            let b = ($1.season ?? Int.min, $1.episodeNumber ?? Int.min, $1.released ?? "")
+            return a < b
+        }.map(\.id)
+        guard !ids.isEmpty, ids.count <= 800_000, let target = ids.firstIndex(of: videoID) else { throw StremioAPI.Failure.noMetadata }
+        var bytes = [UInt8](repeating: 0, count: (ids.count + 7) / 8)
+        if let existing, !existing.isEmpty {
+            var parts = existing.components(separatedBy: ":")
+            guard parts.count >= 3, let compressed = Data(base64Encoded: parts.removeLast()),
+                  let length = Int(parts.removeLast()), length > 0, length <= 800_000 else { throw StremioAPI.Failure.network }
+            let anchor = parts.joined(separator: ":")
+            var old = [UInt8](repeating: 0, count: 100_000)
+            var count = uLongf(old.count)
+            let status = compressed.withUnsafeBytes { source in
+                uncompress(&old, &count, source.bindMemory(to: UInt8.self).baseAddress, uLong(compressed.count))
+            }
+            guard status == Z_OK else { throw StremioAPI.Failure.network }
+            if let anchorIndex = ids.firstIndex(of: anchor) {
+                let offset = length - anchorIndex - 1
+                for index in ids.indices {
+                    let previous = index + offset
+                    if previous >= 0, previous / 8 < Int(count), old[previous / 8] & (1 << (previous % 8)) != 0 {
+                        bytes[index / 8] |= 1 << (index % 8)
+                    }
+                }
+            } else if old.prefix(Int(count)).contains(where: { $0 != 0 }) {
+                // A different metadata provider must not erase an unresolvable history.
+                throw StremioAPI.Failure.noMetadata
+            }
+        }
+        bytes[target / 8] |= 1 << (target % 8)
+        let last = ids.indices.last { bytes[$0 / 8] & (1 << ($0 % 8)) != 0 }!
+        var count = compressBound(uLong(bytes.count))
+        var compressed = [UInt8](repeating: 0, count: Int(count))
+        guard compress2(&compressed, &count, bytes, uLong(bytes.count), 6) == Z_OK else { throw StremioAPI.Failure.network }
+        return "\(ids[last]):\(last + 1):\(Data(compressed.prefix(Int(count))).base64EncodedString())"
     }
 }
 
@@ -165,6 +256,21 @@ struct TVEpisodeService {
     }
     struct Metadata: Decodable { var meta: Meta; struct Meta: Decodable { var videos: [SeriesEpisode]? } }
     struct Streams: Decodable { var streams: [EpisodeStream] }
+    func watchedVideos(_ request: PlaybackRequest, videoID: String, addons: [StremioAddon]) async throws -> [SeriesEpisode] {
+        var urls = addons.filter { $0.supports("meta", id: request.contentID) }.compactMap { $0.endpoint("meta", type: "series", id: request.contentID) }
+        if request.contentID.range(of: #"^tt\d+$"#, options: .regularExpression) != nil {
+            urls.append(URL(string: "https://v3-cinemeta.strem.io/meta/series/\(request.contentID).json")!)
+        }
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["HARBOR_TEST_EPISODES_URL"], let url = URL(string: raw), ["localhost", "127.0.0.1"].contains(url.host ?? "") { urls = [url] }
+        #endif
+        for url in urls {
+            try Task.checkCancellation()
+            if let data = try? await get(url, as: Metadata.self), let videos = data.meta.videos,
+               videos.contains(where: { $0.id == videoID }) { return videos }
+        }
+        throw StremioAPI.Failure.noMetadata
+    }
     func episodes(_ request: PlaybackRequest, addons: [StremioAddon]) async throws -> [SeriesEpisode] {
         guard request.season != nil, request.episode != nil else { return [] }
         var urls = addons.filter { $0.supports("meta", id: request.contentID) }.compactMap { $0.endpoint("meta", type: "series", id: request.contentID) }

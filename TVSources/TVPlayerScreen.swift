@@ -172,7 +172,16 @@ struct TVPlayerScreen: View {
     private var episodeEvents: some View {
         playbackEvents
             .task(id: episodeTaskID) { await loadEpisodes() }
-            .onChange(of: state.ended) { _, ended in if ended { advanceAtEnd() } }
+            .onChange(of: state.ended) { _, ended in
+                if ended {
+                    let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID
+                    let duration = state.duration
+                    Task { @MainActor in
+                        if let video { await account.save(snapshot, videoID: video, position: duration, duration: duration, completed: true) }
+                    }
+                    advanceAtEnd()
+                }
+            }
             .onChange(of: metadataBusy) { _, busy in if !busy && state.ended { advanceAtEnd() } }
             .onChange(of: account.credentials?.authKey) { _, _ in autoAttempt = nil }
             .sheet(isPresented: $accountSetup) { TVStremioLogin() }
@@ -378,10 +387,13 @@ struct TVPlayerScreen: View {
         guard !closing else { return }; closing = true
         if let controller = state.controller {
             let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID, duration = state.duration, completed = state.ended
+            let lastPosition = state.position
             controller.finishPlayback { position, loaded in
-                if !replacing { playbackReturn.prepare(request, position: position, loaded: loaded) }
+                let captured = loaded || (lastPosition.isFinite && lastPosition > 0 && duration > 0)
+                let finalPosition = loaded ? position : (completed ? duration : lastPosition)
+                if !replacing { playbackReturn.prepare(request, position: finalPosition, loaded: captured) }
                 Task { @MainActor in
-                    if loaded, let video { await account.save(snapshot, videoID: video, position: position, duration: duration, completed: completed) }
+                    if captured { await account.save(snapshot, videoID: video ?? "", position: finalPosition, duration: duration, completed: completed) }
                     dismiss()
                 }
             }

@@ -108,6 +108,33 @@ final class TVPlayerUITests: XCTestCase {
         }
     }
 
+    func testFailedSavePersistsAndRetriesBeforeResume() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        var link = URLComponents(string: "infuse://x-callback-url/play")!
+        link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "x-success", value: "stremio:///detail/series/tt985/tt985:1:2")]
+        app.launchArguments = ["-controlsHideSeconds", "30"]
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launchEnvironment["HARBOR_TEST_STREMIO_API"] = "http://127.0.0.1:8765/api"
+        app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        app.launch()
+        wait("Playback before rejected save") { self.seconds(app.staticTexts["playbackClock"]) >= 15 }
+        remote.press(.playPause)
+        wait("Paused") { app.buttons["Play-Pause"].value as? String == "paused" }
+        let saved = seconds(app.staticTexts["playbackClock"])
+        remote.press(.menu); remote.press(.menu)
+        XCTAssertTrue(app.staticTexts["stremioSyncFailure"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.buttons["retryStremioSync"].exists)
+        XCTAssertFalse(app.staticTexts["returnCallback"].exists, "A failed save must not disappear behind a successful return callback")
+        app.terminate()
+        link.queryItems?.removeAll { $0.name == "position" }
+        app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+        app.launch()
+        wait("Persisted outbox retries and resumes after restart") { self.seconds(app.staticTexts["playbackClock"]) >= saved && self.seconds(app.staticTexts["playbackClock"]) <= saved + 6 }
+        app.terminate()
+    }
+
     func testRemotePlaybackSettingsAndStremioReturn() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -278,6 +305,8 @@ final class TVPlayerUITests: XCTestCase {
         app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
         app.launch()
         wait("Actual EOF starts next season") { app.staticTexts["episodeTitle"].label == "New season – (2×1)" && self.seconds(app.staticTexts["playbackClock"]) >= 1 && self.seconds(app.staticTexts["playbackClock"]) < 30 }
+        let watched = storedState("tt123")["watched"] as? String
+        XCTAssertTrue(watched?.hasPrefix("tt123:1:2:2:") == true, "EOF must persist the finished episode's watched bitmap")
         XCTAssertTrue(app.buttons["previousEpisode"].exists)
         XCTAssertFalse(app.buttons["nextEpisode"].isEnabled, "Last released episode has no next button action")
         capture("Episode navigation across season boundary")
@@ -296,6 +325,9 @@ final class TVPlayerUITests: XCTestCase {
         remote.press(.menu); remote.press(.menu)
         let callback = app.staticTexts["returnCallback"]
         wait("Return identifies new episode") { callback.exists && callback.label.contains("tt123:2:1") && callback.label.contains("position=") }
+        let returnedState = storedState("tt123")
+        XCTAssertEqual(returnedState["watched"] as? String, watched, "Returning from the next episode must preserve the previous episode's watched mark")
+        XCTAssertEqual(returnedState["video_id"] as? String, "tt123:2:1")
         app.terminate()
     }
 
@@ -315,6 +347,18 @@ final class TVPlayerUITests: XCTestCase {
         guard clock.exists else { return -1 }
         let values = clock.label.split(separator: ":").compactMap { Int($0) }
         return values.count == 2 ? values[0] * 60 + values[1] : -1
+    }
+    private func storedState(_ id: String) -> [String: Any] {
+        let done = expectation(description: "Read fixture's stored progress")
+        var state: [String: Any] = [:]
+        URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:8765/test-progress")!) { data, _, _ in
+            if let data, let records = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] {
+                state = records[id]?["state"] as? [String: Any] ?? [:]
+            }
+            done.fulfill()
+        }.resume()
+        XCTAssertEqual(XCTWaiter.wait(for: [done], timeout: 10), .completed)
+        return state
     }
     private func wait(_ name: String, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
