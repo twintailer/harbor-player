@@ -52,6 +52,24 @@ import Foundation
         let state = EpisodeFixture.saved["state"] as! [String: Any]
         precondition(state["timeOffset"] as? Int == 0 && state["video_id"] as? String == target.id && state["customFlag"] as? String == "preserved")
         precondition((state["watched"] as? String)?.hasPrefix("tt123:2:1:") == true, "Completed episodes must write the Stremio watched bitmap")
+        try await api.saveProgress(key: credentials.authKey, request: request, videoID: "tt123:2:2", position: 15, duration: 60, completed: false)
+        let nextState = EpisodeFixture.saved["state"] as! [String: Any]
+        precondition(nextState["timeOffset"] as? Int == 15000 && nextState["watched"] as? String == state["watched"] as? String, "Starting the next episode preserves the watched episode and stores its own position")
+        EpisodeFixture.dropWrites = true
+        do {
+            try await api.saveProgress(key: credentials.authKey, request: request, videoID: "tt123:2:2", position: 20, duration: 60, completed: false)
+            preconditionFailure("A successful HTTP response without a stored update must fail verification")
+        } catch StremioAPI.Failure.unconfirmedSave { }
+        EpisodeFixture.dropWrites = false
+        EpisodeFixture.rejectWrites = true
+        do {
+            try await api.saveProgress(key: credentials.authKey, request: request, videoID: "tt123:2:2", position: 20, duration: 60, completed: false)
+            preconditionFailure("Rejected account writes must be visible")
+        } catch StremioAPI.Failure.rejected(let method, let code) { precondition(method == "datastorePut" && code == 401) }
+        EpisodeFixture.rejectWrites = false
+        let pending = StremioPendingProgress(request, videoID: target.id, position: 60, duration: 60, completed: true)
+        let restored = try JSONDecoder().decode(StremioPendingProgress.self, from: JSONEncoder().encode(pending))
+        precondition(restored.videoID == target.id && restored.completed && restored.request.contentID == request.contentID)
         let movie = try PlaybackRequest.parse(URL(string: "infuse://x-callback-url/play?url=https%3A%2F%2Fmedia.invalid%2FS01E02.mkv&x-success=stremio%3A%2F%2F%2Fdetail%2Fmovie%2Ftt123")!)
         precondition(movie.contentType == "movie" && movie.season == nil && movie.episode == nil)
         print("Stremio login/import, addon filters, exact episode order, stream resolution, movie exclusion, progress merge and callbacks passed")
@@ -60,6 +78,8 @@ import Foundation
 
 private final class EpisodeFixture: URLProtocol {
     static var saved: [String: Any] = [:]
+    static var dropWrites = false
+    static var rejectWrites = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -81,8 +101,13 @@ private final class EpisodeFixture: URLProtocol {
         case "addonCollectionGet":
             precondition(body["authKey"] as? String == "fixture-key" && body["update"] as? Bool == false)
             response = ["result": ["addons": [addon, other, ["transportUrl": "broken"]]]]
-        case "datastoreGet": response = ["result": [["_id": "tt123", "removed": false, "temp": false, "state": ["customFlag": "preserved"]]]]
-        case "datastorePut": Self.saved = (body["changes"] as! [[String: Any]])[0]; response = ["result": true]
+        case "datastoreGet": response = ["result": [Self.saved.isEmpty ? ["_id": "tt123", "removed": false, "temp": false, "state": ["customFlag": "preserved"]] : Self.saved]]
+        case "datastorePut":
+            if Self.rejectWrites { response = ["error": ["code": 401]] }
+            else {
+                if !Self.dropWrites { Self.saved = (body["changes"] as! [[String: Any]])[0] }
+                response = ["result": true]
+            }
         default:
             precondition(body.isEmpty, "Account keys must never be sent to addons")
             if url.path.contains("/meta/") {

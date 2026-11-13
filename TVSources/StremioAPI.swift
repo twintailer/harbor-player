@@ -58,13 +58,17 @@ struct StremioAPI {
     var base = URL(string: "https://api.strem.io/api")!
     var session = URLSession.shared
     enum Failure: LocalizedError {
-        case login, network, noStream, noMetadata
+        case login, network, noStream, noMetadata, invalidProgress, unconfirmedSave
+        case rejected(String, Int)
         var errorDescription: String? {
             switch self {
             case .login: return "Anmeldung fehlgeschlagen. Bitte E-Mail und Passwort prüfen."
             case .network: return "Stremio ist gerade nicht erreichbar. Bitte erneut versuchen."
             case .noStream: return "Deine Addons liefern keine direkt abspielbare HTTP-Quelle für diese Folge. Reine Torrent-Quellen benötigen einen Streaming-Server."
             case .noMetadata: return "Die Episodenliste konnte nicht geladen werden."
+            case .invalidProgress: return "Die Folge oder ihre Abspielposition konnte nicht eindeutig erkannt werden."
+            case .unconfirmedSave: return "Stremio hat den gespeicherten Fortschritt beim Zurücklesen nicht bestätigt."
+            case .rejected(let method, let code): return "Stremio hat \(method) abgelehnt (Code \(code)). Bitte die Anmeldung prüfen."
             }
         }
     }
@@ -75,8 +79,14 @@ struct StremioAPI {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                  let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any], envelope["error"] == nil,
+            guard let http = response as? HTTPURLResponse else { throw Failure.network }
+            guard (200..<300).contains(http.statusCode) else { throw Failure.rejected(method, http.statusCode) }
+            guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.network }
+            if let error = envelope["error"], !(error is NSNull) {
+                if method == "login" { throw Failure.login }
+                throw Failure.rejected(method, (error as? [String: Any])?["code"] as? Int ?? 0)
+            }
+            guard
                   let result = envelope["result"] else { throw method == "login" ? Failure.login : Failure.network }
             return result
         } catch is CancellationError { throw CancellationError() }
@@ -97,7 +107,7 @@ struct StremioAPI {
     }
     func saveProgress(key: String, request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool, addons: [StremioAddon] = []) async throws {
         guard !request.contentID.isEmpty, position.isFinite, duration.isFinite, position >= 0, duration > 0,
-              position < 315_576_000, duration < 315_576_000 else { return }
+              !videoID.isEmpty, position < 315_576_000, duration < 315_576_000 else { throw Failure.invalidProgress }
         let watched = completed || position / duration >= 0.9
         // Use the complete metadata list, including specials and future episodes.
         // The navigation list intentionally filters those and cannot index Stremio's bitmap.
@@ -105,8 +115,10 @@ struct StremioAPI {
             ? try await TVEpisodeService(session: session).watchedVideos(request, videoID: videoID, addons: addons) : []
         // A failed read must never turn into an overwrite of an existing bookmark.
         guard let records = try await post("datastoreGet", ["authKey": key, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]] else { throw Failure.network }
-        let now = ISO8601DateFormatter().string(from: Date())
-        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": request.contentType == "movie" ? "movie" : "series", "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = formatter.string(from: Date())
+        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": request.contentType ?? "series", "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
         var state = record["state"] as? [String: Any] ?? [:]
         let changed = (state["video_id"] as? String).map { $0 != videoID } ?? false
         let oldFlag = (state["flaggedWatched"] as? NSNumber)?.intValue ?? 0
@@ -124,6 +136,33 @@ struct StremioAPI {
         if state["noNotif"] == nil { state["noNotif"] = false }
         record["state"] = state; record["_mtime"] = now
         _ = try await post("datastorePut", ["authKey": key, "collection": "libraryItem", "changes": [record]])
+        guard let saved = try await post("datastoreGet", ["authKey": key, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]],
+              let confirmed = saved.first(where: { $0["_id"] as? String == request.contentID })?["state"] as? [String: Any],
+              confirmed["video_id"] as? String == videoID,
+              (confirmed["timeOffset"] as? NSNumber)?.intValue == (state["timeOffset"] as? Int),
+              (confirmed["duration"] as? NSNumber)?.intValue == (state["duration"] as? Int),
+              confirmed["watched"] as? String == state["watched"] as? String else { throw Failure.unconfirmedSave }
+    }
+}
+
+/// Retry records deliberately omit stream URLs, callbacks and authentication keys.
+struct StremioPendingProgress: Codable {
+    var contentID: String
+    var contentType: String?
+    var title: String
+    var season: Int?
+    var episode: Int?
+    var videoID: String
+    var position: Double
+    var duration: Double
+    var completed: Bool
+    var request: PlaybackRequest {
+        PlaybackRequest(url: URL(string: "https://example.invalid/pending")!, title: title, contentID: contentID, season: season, episode: episode, contentType: contentType)
+    }
+    init(_ request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool) {
+        contentID = request.contentID; contentType = request.contentType; title = request.title
+        season = request.season; episode = request.episode; self.videoID = videoID
+        self.position = position; self.duration = duration; self.completed = completed
     }
 }
 

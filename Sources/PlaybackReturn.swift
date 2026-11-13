@@ -5,10 +5,11 @@ final class PlaybackReturn: ObservableObject {
     @Published var message: String?
     @Published var retryURL: URL?
     @Published var lastCallback: URL?
+    @Published private(set) var awaitingDelivery = false
     private var pending: (PlaybackRequest, Double, Bool)?
-    func prepare(_ request: PlaybackRequest, position: Double, loaded: Bool) { pending = (request, position, loaded) }
+    func prepare(_ request: PlaybackRequest, position: Double, loaded: Bool) { pending = (request, position, loaded); awaitingDelivery = loaded }
     func deliverPending() {
-        guard let value = pending else { return }; pending = nil
+        guard let value = pending else { return }; pending = nil; awaitingDelivery = false
         send(value.0, position: value.1, loaded: value.2)
     }
 

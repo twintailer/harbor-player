@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent / 'Fixtures'
 
 class Handler(SimpleHTTPRequestHandler):
     progress = {}
+    rejected_once = False
 
     def json_response(self, value):
         data = json.dumps(value).encode()
@@ -35,6 +36,10 @@ class Handler(SimpleHTTPRequestHandler):
             item = self.progress.get(identity, initial.get(identity))
             self.json_response({'result': [item] if item else []})
         elif method == 'datastorePut':
+            if any(item['_id'] == 'tt985' for item in body['changes']) and not type(self).rejected_once:
+                type(self).rejected_once = True
+                self.json_response({'error': {'code': 503}})
+                return
             for item in body['changes']:
                 self.progress[item['_id']] = item
             self.json_response({'result': True})

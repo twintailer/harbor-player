@@ -33,6 +33,15 @@ import SwiftUI
                     Text("Play/Pause: Wiedergabe steuern · Auswahl: Bedienleiste öffnen · Links/Rechts bei ausgeblendeter Leiste: springen · Zurück: Leiste schließen, danach Player verlassen.").font(.callout).foregroundStyle(.secondary)
                     if opening { ProgressView("Stremio-Fortschritt laden ...") }
                     if let message = account.message { Text(message).font(.footnote) }
+                    if let failure = account.syncFailure { Text(failure).font(.footnote).foregroundStyle(.orange).accessibilityIdentifier("stremioSyncFailure") }
+                    if account.hasPendingSync {
+                        Button("Fortschritt erneut synchronisieren") {
+                            Task { if await account.retryPending() { playbackReturn.deliverPending() } }
+                        }.accessibilityIdentifier("retryStremioSync")
+                    }
+                    if playbackReturn.awaitingDelivery && (account.syncFailure != nil || account.hasPendingSync) {
+                        Button("Ohne Synchronisierung zu Stremio zurück") { playbackReturn.deliverPending() }
+                    }
                     if let message = playbackReturn.message { Text(message).font(.footnote) }
                     if playbackReturn.retryURL != nil { Button("Position erneut an Stremio übergeben") { playbackReturn.retry() } }
                     #if DEBUG
@@ -55,7 +64,7 @@ import SwiftUI
                     #endif
                 }
                 .fullScreenCover(item: $request, onDismiss: {
-                    playbackReturn.deliverPending()
+                    if account.syncFailure == nil && !account.hasPendingSync { playbackReturn.deliverPending() }
                     if let next = pending { pending = nil; request = next }
                 }) { TVPlayerScreen(request: $0).environmentObject(playbackReturn) }
                 .alert("Stream öffnen", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {

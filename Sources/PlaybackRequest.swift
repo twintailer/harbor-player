@@ -57,18 +57,26 @@ struct PlaybackRequest: Identifiable, Equatable {
     /// not in standalone id/season/episode parameters.
     mutating func inferContentIdentity() {
         if let callback = successCallback, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) {
-            let route = parts.scheme == "https"
-                ? parts.fragment.flatMap { URLComponents(string: $0)?.path } ?? parts.path : parts.path
+            let route = PlaybackCallback.routePath(parts)
             let fields = route.split(separator: "/").map(String.init)
             if let detail = fields.firstIndex(of: "detail"), fields.count > detail + 2 {
                 let type = fields[detail + 1]
                 contentType = contentType ?? type
                 let meta = fields[detail + 2]
                 let video = fields.count > detail + 3 ? fields[detail + 3] : meta
-                applyIdentity(meta, video: video, type: type)
+                // The callback contains Stremio's datastore key, not a search hint.
+                // Preserve opaque addon IDs (including tmdb:123) byte-for-byte.
+                if contentID.isEmpty { contentID = meta }
+                if contentID == meta {
+                    if video.hasPrefix(meta + ":") {
+                        let numbers = video.dropFirst(meta.count + 1).split(separator: ":").compactMap { Int($0) }
+                        if numbers.count >= 2 { season = season ?? numbers[0]; episode = episode ?? numbers[1] }
+                        else if numbers.count == 1 { episode = episode ?? numbers[0]; season = season ?? 1 }
+                    }
+                }
             }
         }
-        if !contentID.isEmpty { applyIdentity(contentID, video: contentID, type: nil) }
+        if !contentID.isEmpty, successCallback == nil { applyIdentity(contentID, video: contentID, type: nil) }
         if contentType != "movie", season == nil || episode == nil {
             let text = title.removingPercentEncoding ?? title
             if let range = text.range(of: #"(?i)\bS(\d{1,3})[ ._-]*E(\d{1,4})\b"#, options: .regularExpression) {
@@ -110,6 +118,11 @@ struct PlaybackRequest: Identifiable, Equatable {
 }
 
 enum PlaybackCallback {
+    static func routePath(_ parts: URLComponents) -> String {
+        if parts.scheme == "https" { return parts.fragment.flatMap { URLComponents(string: $0)?.path } ?? parts.path }
+        if let host = parts.host, !host.isEmpty { return "/" + host + parts.path }
+        return parts.path
+    }
     // Only return media URLs to Stremio, never to an arbitrary callback host.
     static func isSupported(_ url: URL) -> Bool {
         if url.scheme?.lowercased() == "stremio" { return true }
