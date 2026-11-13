@@ -2,7 +2,7 @@ import Foundation
 
 @main struct TVEpisodeTests {
     static func main() async throws {
-        let bitmapVideos = (1...20).map { SeriesEpisode(id: "tt0:1:\($0)", season: 1, episode: $0) }
+        let bitmapVideos = (1...20).map { (episode: Int) in SeriesEpisode(id: "tt0:1:\(episode)", season: 1, episode: episode) }
         let original = "tt0:1:5:5:eJyTZwAAAEAAIA=="
         let updated = try StremioWatched.mark(original, videoID: "tt0:1:16", videos: bitmapVideos)
         precondition(updated.hasPrefix("tt0:1:16:16:"), "Anchor must use bit index, not byte index")
