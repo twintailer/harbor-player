@@ -2,6 +2,21 @@ import Foundation
 
 @main struct TVEpisodeTests {
     static func main() async throws {
+        let bitmapVideos = (1...20).map { SeriesEpisode(id: "tt0:1:\($0)", season: 1, episode: $0) }
+        let original = "tt0:1:5:5:eJyTZwAAAEAAIA=="
+        let updated = try StremioWatched.mark(original, videoID: "tt0:1:16", videos: bitmapVideos)
+        precondition(updated.hasPrefix("tt0:1:16:16:"), "Anchor must use bit index, not byte index")
+        precondition(updated == "tt0:1:16:16:eJyTb2AAAAFgAKA=", "Preserve episodes 1–5 and set only episode 16 (independent zlib fixture)")
+        let repeated = try StremioWatched.mark(updated, videoID: "tt0:1:16", videos: bitmapVideos)
+        precondition(updated == repeated, "Repeated completion must preserve history")
+        let special = SeriesEpisode(id: "tt0:0:1", season: 0, episode: 1)
+        let shifted = try StremioWatched.mark(original, videoID: special.id, videos: [special] + bitmapVideos)
+        precondition(shifted.hasPrefix("tt0:1:5:6:"), "New specials must shift existing watched bits")
+        precondition(shifted == "tt0:1:5:6:eJyzZ2AAAADAAEA=", "Preserve earlier watched episodes after shifting")
+        do {
+            _ = try StremioWatched.mark("invalid", videoID: "tt0:1:1", videos: bitmapVideos)
+            preconditionFailure("Malformed history must not be overwritten")
+        } catch StremioAPI.Failure.network { }
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [EpisodeFixture.self]
         let session = URLSession(configuration: config)
@@ -36,6 +51,7 @@ import Foundation
         precondition(EpisodeFixture.saved["removed"] as? Bool == false && EpisodeFixture.saved["temp"] as? Bool == false, "Progress preserves bookmarks")
         let state = EpisodeFixture.saved["state"] as! [String: Any]
         precondition(state["timeOffset"] as? Int == 0 && state["video_id"] as? String == target.id && state["customFlag"] as? String == "preserved")
+        precondition((state["watched"] as? String)?.hasPrefix("tt123:2:1:") == true, "Completed episodes must write the Stremio watched bitmap")
         let movie = try PlaybackRequest.parse(URL(string: "infuse://x-callback-url/play?url=https%3A%2F%2Fmedia.invalid%2FS01E02.mkv&x-success=stremio%3A%2F%2F%2Fdetail%2Fmovie%2Ftt123")!)
         precondition(movie.contentType == "movie" && movie.season == nil && movie.episode == nil)
         print("Stremio login/import, addon filters, exact episode order, stream resolution, movie exclusion, progress merge and callbacks passed")

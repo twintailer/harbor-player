@@ -7,6 +7,7 @@ import Security
     @Published private(set) var busy = false
     @Published var message: String?
     private var revision = UUID()
+    private var pendingSave: Task<Void, Never>?
     private let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "app.kairo.player.tvos.stremio", kSecAttrAccount as String: "account"]
     var api: StremioAPI {
         var value = StremioAPI()
@@ -80,8 +81,19 @@ import Security
     }
     func save(_ request: PlaybackRequest, videoID: String, position: Double, duration: Double, completed: Bool) async {
         guard let value = credentials else { return }
-        do { try await api.saveProgress(key: value.authKey, request: request, videoID: videoID, position: position, duration: duration, completed: completed) }
-        catch { message = "Die Abspielposition konnte nicht mit Stremio synchronisiert werden." }
+        let previous = pendingSave, token = revision
+        let task = Task { @MainActor in
+            await previous?.value
+            guard token == revision else { return }
+            do {
+                try await api.saveProgress(key: value.authKey, request: request, videoID: videoID, position: position, duration: duration, completed: completed, addons: value.addons)
+                if token == revision { message = nil }
+            } catch {
+                if token == revision { message = "Fortschritt und Gesehen-Status konnten nicht mit Stremio synchronisiert werden." }
+            }
+        }
+        pendingSave = task
+        await task.value
     }
 }
 

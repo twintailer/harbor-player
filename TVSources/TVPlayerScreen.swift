@@ -172,7 +172,16 @@ struct TVPlayerScreen: View {
     private var episodeEvents: some View {
         playbackEvents
             .task(id: episodeTaskID) { await loadEpisodes() }
-            .onChange(of: state.ended) { _, ended in if ended { advanceAtEnd() } }
+            .onChange(of: state.ended) { _, ended in
+                if ended {
+                    let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID
+                    let duration = state.duration
+                    Task { @MainActor in
+                        if let video { await account.save(snapshot, videoID: video, position: duration, duration: duration, completed: true) }
+                    }
+                    advanceAtEnd()
+                }
+            }
             .onChange(of: metadataBusy) { _, busy in if !busy && state.ended { advanceAtEnd() } }
             .onChange(of: account.credentials?.authKey) { _, _ in autoAttempt = nil }
             .sheet(isPresented: $accountSetup) { TVStremioLogin() }
