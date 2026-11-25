@@ -37,7 +37,7 @@ import Foundation
     }
     static func fallback(_ request: PlaybackRequest) -> String {
         var name = request.title
-        if let range = name.range(of: #"(?i)\bS\d{1,3}[ ._-]*E\d{1,4}\b"#, options: .regularExpression) {
+        if !request.hasCustomContentID, let range = name.range(of: #"(?i)\bS\d{1,3}[ ._-]*E\d{1,4}\b"#, options: .regularExpression) {
             name = String(name[..<range.lowerBound]).replacingOccurrences(of: ".", with: " ").replacingOccurrences(of: "_", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }

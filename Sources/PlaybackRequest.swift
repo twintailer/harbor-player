@@ -14,6 +14,15 @@ struct PlaybackRequest: Identifiable, Equatable {
     var contentType: String? = nil
     var startSupplied = false
 
+    var hasCustomContentID: Bool {
+        guard !contentID.isEmpty else { return false }
+        return contentID.range(of: #"^(tt[0-9]+|(?:tmdb:(?:(?:tv|movie):)?|(?:mal|kitsu|anilist):)[0-9]+)(?=:|$)"#, options: .regularExpression) == nil
+    }
+
+    var supportsEpisodes: Bool {
+        !contentID.isEmpty && !hasCustomContentID && contentType != "movie" && season != nil && episode != nil
+    }
+
     static func parse(_ input: URL) throws -> PlaybackRequest {
         let scheme = input.scheme?.lowercased() ?? ""
         if ["http", "https"].contains(scheme), input.host != nil {
@@ -56,20 +65,37 @@ struct PlaybackRequest: Identifiable, Equatable {
     /// Native Stremio's Infuse protocol carries the media identity in x-success,
     /// not in standalone id/season/episode parameters.
     mutating func inferContentIdentity() {
+        var identityFromCallback = false
         if let callback = successCallback, let parts = URLComponents(url: callback, resolvingAgainstBaseURL: false) {
-            let route = parts.scheme == "https"
-                ? parts.fragment.flatMap { URLComponents(string: $0)?.path } ?? parts.path : parts.path
+            let route = PlaybackCallback.routePath(parts)
             let fields = route.split(separator: "/").map(String.init)
             if let detail = fields.firstIndex(of: "detail"), fields.count > detail + 2 {
                 let type = fields[detail + 1]
                 contentType = contentType ?? type
                 let meta = fields[detail + 2]
                 let video = fields.count > detail + 3 ? fields[detail + 3] : meta
-                applyIdentity(meta, video: video, type: type)
+                // The callback contains Stremio's datastore key, not a search hint.
+                // Preserve opaque addon IDs (including tmdb:123) byte-for-byte.
+                if contentID.isEmpty { contentID = meta }
+                if contentID == meta {
+                    identityFromCallback = true
+                    if !hasCustomContentID, contentType != "movie", video.hasPrefix(meta + ":") {
+                        let numbers = video.dropFirst(meta.count + 1).split(separator: ":").compactMap { Int($0) }
+                        if numbers.count >= 2 { season = season ?? numbers[0]; episode = episode ?? numbers[1] }
+                        else if numbers.count == 1 { episode = episode ?? numbers[0]; season = season ?? 1 }
+                    }
+                }
             }
         }
-        if !contentID.isEmpty { applyIdentity(contentID, video: contentID, type: nil) }
-        if contentType != "movie", season == nil || episode == nil {
+        // Addon IDs carry no numbering convention. Keep them verbatim, even
+        // for a series, and never infer episodes from their titles.
+        if hasCustomContentID || contentType == "movie" {
+            season = nil
+            episode = nil
+        } else if !contentID.isEmpty, !identityFromCallback {
+            applyIdentity(contentID, video: contentID, type: nil)
+        }
+        if !hasCustomContentID, contentType != "movie", season == nil || episode == nil {
             let text = title.removingPercentEncoding ?? title
             if let range = text.range(of: #"(?i)\bS(\d{1,3})[ ._-]*E(\d{1,4})\b"#, options: .regularExpression) {
                 let numbers = text[range].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
@@ -110,6 +136,11 @@ struct PlaybackRequest: Identifiable, Equatable {
 }
 
 enum PlaybackCallback {
+    static func routePath(_ parts: URLComponents) -> String {
+        if parts.scheme == "https" { return parts.fragment.flatMap { URLComponents(string: $0)?.path } ?? parts.path }
+        if let host = parts.host, !host.isEmpty { return "/" + host + parts.path }
+        return parts.path
+    }
     // Only return media URLs to Stremio, never to an arbitrary callback host.
     static func isSupported(_ url: URL) -> Bool {
         if url.scheme?.lowercased() == "stremio" { return true }
