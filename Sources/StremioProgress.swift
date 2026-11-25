@@ -10,7 +10,7 @@ extension PlaybackRequest {
                 return fields[index + 3]
             }
         }
-        if contentType == "movie" { return contentID }
+        if contentType == "movie" || hasCustomContentID { return contentID }
         if let season, let episode { return "\(contentID):\(season):\(episode)" }
         return nil
     }

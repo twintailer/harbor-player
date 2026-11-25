@@ -67,6 +67,15 @@ import Foundation
             preconditionFailure("Rejected account writes must be visible")
         } catch StremioAPI.Failure.rejected(let method, let code) { precondition(method == "datastorePut" && code == 401) }
         EpisodeFixture.rejectWrites = false
+        let customAddon = StremioAddon(transportUrl: URL(string: "https://fixture.invalid/custom/manifest.json")!, manifest: .init(name: "Custom", types: ["series"], resources: [.name("meta")], idPrefixes: ["yt:"]))
+        let channel = PlaybackRequest(url: request.url, title: "YouTube channel", contentID: "yt:UCchannel", season: 1, episode: 2, contentType: "series")
+        let customEpisodes = try await service.episodes(channel, addons: [customAddon])
+        precondition(customEpisodes.isEmpty)
+        try await api.saveProgress(key: credentials.authKey, request: channel, videoID: "yt:AbC_123", position: 15.25, duration: 60, completed: false, addons: [customAddon])
+        let channelState = EpisodeFixture.saved["state"] as! [String: Any]
+        precondition(EpisodeFixture.saved["_id"] as? String == "yt:UCchannel" && EpisodeFixture.saved["type"] as? String == "series")
+        precondition(channelState["video_id"] as? String == "yt:AbC_123" && channelState["timeOffset"] as? Int == 15250 && channelState["duration"] as? Int == 60000)
+        try await api.saveProgress(key: credentials.authKey, request: channel, videoID: "yt:AbC_123", position: 60, duration: 60, completed: true, addons: [customAddon])
         let pending = StremioPendingProgress(request, videoID: target.id, position: 60, duration: 60, completed: true)
         let restored = try JSONDecoder().decode(StremioPendingProgress.self, from: JSONEncoder().encode(pending))
         precondition(restored.videoID == target.id && restored.completed && restored.request.contentID == request.contentID)
@@ -110,6 +119,7 @@ private final class EpisodeFixture: URLProtocol {
             }
         default:
             precondition(body.isEmpty, "Account keys must never be sent to addons")
+            precondition(!url.path.hasPrefix("/custom/meta/"), "Opaque addon videos must not request episode metadata")
             if url.path.contains("/meta/") {
                 response = ["meta": ["videos": [
                     ["id": "tt123:2:1", "season": 2, "episode": 1, "title": "Season two"],

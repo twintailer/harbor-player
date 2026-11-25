@@ -36,6 +36,9 @@ class Handler(SimpleHTTPRequestHandler):
             item = self.progress.get(identity, initial.get(identity))
             self.json_response({'result': [item] if item else []})
         elif method == 'datastorePut':
+            if any(item['_id'] == 'tw:fixture' for item in body['changes']):
+                self.json_response({'error': {'code': 503}})
+                return
             if any(item['_id'] == 'tt985' for item in body['changes']) and not type(self).rejected_once:
                 type(self).rejected_once = True
                 self.json_response({'error': {'code': 503}})

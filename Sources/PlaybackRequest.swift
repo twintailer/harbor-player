@@ -14,6 +14,15 @@ struct PlaybackRequest: Identifiable, Equatable {
     var contentType: String? = nil
     var startSupplied = false
 
+    var hasCustomContentID: Bool {
+        guard !contentID.isEmpty else { return false }
+        return contentID.range(of: #"^(tt[0-9]+|(?:tmdb:(?:(?:tv|movie):)?|(?:mal|kitsu|anilist):)[0-9]+)(?=:|$)"#, options: .regularExpression) == nil
+    }
+
+    var supportsEpisodes: Bool {
+        !contentID.isEmpty && !hasCustomContentID && contentType != "movie" && season != nil && episode != nil
+    }
+
     static func parse(_ input: URL) throws -> PlaybackRequest {
         let scheme = input.scheme?.lowercased() ?? ""
         if ["http", "https"].contains(scheme), input.host != nil {
@@ -70,7 +79,7 @@ struct PlaybackRequest: Identifiable, Equatable {
                 if contentID.isEmpty { contentID = meta }
                 if contentID == meta {
                     identityFromCallback = true
-                    if video.hasPrefix(meta + ":") {
+                    if !hasCustomContentID, contentType != "movie", video.hasPrefix(meta + ":") {
                         let numbers = video.dropFirst(meta.count + 1).split(separator: ":").compactMap { Int($0) }
                         if numbers.count >= 2 { season = season ?? numbers[0]; episode = episode ?? numbers[1] }
                         else if numbers.count == 1 { episode = episode ?? numbers[0]; season = season ?? 1 }
@@ -78,8 +87,15 @@ struct PlaybackRequest: Identifiable, Equatable {
                 }
             }
         }
-        if !contentID.isEmpty, !identityFromCallback { applyIdentity(contentID, video: contentID, type: nil) }
-        if contentType != "movie", season == nil || episode == nil {
+        // Addon IDs carry no numbering convention. Keep them verbatim, even
+        // for a series, and never infer episodes from their titles.
+        if hasCustomContentID || contentType == "movie" {
+            season = nil
+            episode = nil
+        } else if !contentID.isEmpty, !identityFromCallback {
+            applyIdentity(contentID, video: contentID, type: nil)
+        }
+        if !hasCustomContentID, contentType != "movie", season == nil || episode == nil {
             let text = title.removingPercentEncoding ?? title
             if let range = text.range(of: #"(?i)\bS(\d{1,3})[ ._-]*E(\d{1,4})\b"#, options: .regularExpression) {
                 let numbers = text[range].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }

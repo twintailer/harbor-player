@@ -160,7 +160,7 @@ struct TVPlayerScreen: View {
             } message: { Text(state.error ?? "") }
     }
     private var episodeIdentity: PlaybackRequest { identity ?? request }
-    private var isSeries: Bool { episodeIdentity.contentType != "movie" && !episodeIdentity.contentID.isEmpty && episodeIdentity.season != nil && episodeIdentity.episode != nil }
+    private var isSeries: Bool { episodeIdentity.supportsEpisodes }
     private var episodeIndex: Int? { episodes.firstIndex { $0.season == episodeIdentity.season && $0.episodeNumber == episodeIdentity.episode } }
     private var previousEpisode: SeriesEpisode? { guard let i = episodeIndex, i > 0 else { return nil }; return episodes[i - 1] }
     private var nextEpisode: SeriesEpisode? { guard let i = episodeIndex, i + 1 < episodes.count else { return nil }; return episodes[i + 1] }
@@ -174,10 +174,10 @@ struct TVPlayerScreen: View {
             .task(id: episodeTaskID) { await loadEpisodes() }
             .onChange(of: state.ended) { _, ended in
                 if ended {
-                    let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID
+                    let snapshot = episodeIdentity, video = isSeries ? currentVideoID : episodeIdentity.progressVideoID
                     let duration = state.duration
                     Task { @MainActor in
-                        if let video { await account.save(snapshot, videoID: video, position: duration, duration: duration, completed: true) }
+                        if let video, duration > 0 { await account.save(snapshot, videoID: video, position: duration, duration: duration, completed: true) }
                     }
                     advanceAtEnd()
                 }
@@ -332,6 +332,10 @@ struct TVPlayerScreen: View {
     private func lookup() async {
         guard state.duration > 0 else { return }
         state.segments = IntroSkipService.chapterSegments(state.chapters, duration: state.duration)
+        if request.hasCustomContentID {
+            state.skipStatus = "Zeitmarken aus den Kapiteln des Streams."
+            return
+        }
         state.skipStatus = "Suche nach Intro- und Recap-Zeiten …"
         var proposed = request
         proposed.contentID = contentID; proposed.season = Int(season); proposed.episode = Int(episode)
@@ -371,7 +375,7 @@ struct TVPlayerScreen: View {
     private func restart(_ url: URL) {
         navigationTask?.cancel()
         guard !closing else { return }; closing = true
-        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: request.isAnime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback)
+        let replacement = PlaybackRequest(url: url, title: request.title, contentID: contentID, season: Int(season), episode: Int(episode), isAnime: request.isAnime, start: state.position, subtitle: request.subtitle, successCallback: request.successCallback, contentType: request.contentType)
         let replace = {
             if replacing { dismiss(); return }
             request = replacement; identity = nil
@@ -386,14 +390,18 @@ struct TVPlayerScreen: View {
         commitScrub()
         guard !closing else { return }; closing = true
         if let controller = state.controller {
-            let snapshot = episodeIdentity, video = isSeries ? currentVideoID : request.progressVideoID, duration = state.duration, completed = state.ended
+            let snapshot = episodeIdentity, video = isSeries ? currentVideoID : episodeIdentity.progressVideoID, duration = state.duration, completed = state.ended
             let lastPosition = state.position
             controller.finishPlayback { position, loaded in
-                let captured = loaded || (lastPosition.isFinite && lastPosition > 0 && duration > 0)
+                let captured = loaded || (lastPosition.isFinite && lastPosition > 0)
                 let finalPosition = loaded ? position : (completed ? duration : lastPosition)
                 if !replacing { playbackReturn.prepare(request, position: finalPosition, loaded: captured) }
                 Task { @MainActor in
-                    if captured { await account.save(snapshot, videoID: video ?? "", position: finalPosition, duration: duration, completed: completed) }
+                    // A live stream may have a position but no finite duration.
+                    // Return that position without adding an unsavable entry to the queue.
+                    if captured, !snapshot.hasCustomContentID || (duration.isFinite && duration > 0) {
+                        await account.save(snapshot, videoID: video ?? "", position: finalPosition, duration: duration, completed: completed)
+                    }
                     dismiss()
                 }
             }

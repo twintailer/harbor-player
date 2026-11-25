@@ -111,14 +111,19 @@ struct StremioAPI {
         let watched = completed || position / duration >= 0.9
         // Use the complete metadata list, including specials and future episodes.
         // The navigation list intentionally filters those and cannot index Stremio's bitmap.
-        let videos = watched && request.contentType != "movie"
+        let videos = watched && request.supportsEpisodes
             ? try await TVEpisodeService(session: session).watchedVideos(request, videoID: videoID, addons: addons) : []
         // A failed read must never turn into an overwrite of an existing bookmark.
         guard let records = try await post("datastoreGet", ["authKey": key, "collection": "libraryItem", "ids": [request.contentID], "all": false]) as? [[String: Any]] else { throw Failure.network }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let now = formatter.string(from: Date())
-        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": request.contentType ?? "series", "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
+        let type = request.contentType ?? (request.supportsEpisodes ? "series" : "movie")
+        var record = records.first { $0["_id"] as? String == request.contentID } ?? ["_id": request.contentID, "type": type, "name": request.title, "removed": true, "temp": true, "_ctime": now, "posterShape": "poster"]
+        if request.hasCustomContentID, let suppliedType = request.contentType {
+            // Earlier builds could store untyped addon videos as series.
+            record["type"] = suppliedType
+        }
         var state = record["state"] as? [String: Any] ?? [:]
         let changed = (state["video_id"] as? String).map { $0 != videoID } ?? false
         let oldFlag = (state["flaggedWatched"] as? NSNumber)?.intValue ?? 0
@@ -272,7 +277,7 @@ struct TVEpisodeService {
         throw StremioAPI.Failure.noMetadata
     }
     func episodes(_ request: PlaybackRequest, addons: [StremioAddon]) async throws -> [SeriesEpisode] {
-        guard request.season != nil, request.episode != nil else { return [] }
+        guard request.supportsEpisodes else { return [] }
         var urls = addons.filter { $0.supports("meta", id: request.contentID) }.compactMap { $0.endpoint("meta", type: "series", id: request.contentID) }
         if request.contentID.range(of: #"^tt\d+$"#, options: .regularExpression) != nil {
             urls.append(URL(string: "https://v3-cinemeta.strem.io/meta/series/\(request.contentID).json")!)

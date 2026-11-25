@@ -343,6 +343,37 @@ final class TVPlayerUITests: XCTestCase {
         app.terminate()
     }
 
+    func testYouTubeAndTwitchReturnWithoutEpisodeNavigation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-controlsHideSeconds", "30"]
+        app.launchEnvironment["HARBOR_TEST_STREMIO_API"] = "http://127.0.0.1:8765/api"
+        app.launchEnvironment["HARBOR_TEST_ACCOUNT"] = "fixture-only"
+        app.launchEnvironment["HARBOR_TEST_CAPTURE_CALLBACK"] = "1"
+        // Put the rejected Twitch save last because it remains in Kairo's retry queue.
+        for (type, id, video) in [("movie", "yt:fixture", "yt:fixture"), ("series", "yt:UCfixture", "yt:fixture"), ("movie", "tw:fixture", "tw:fixture")] {
+            var link = URLComponents(string: "infuse://x-callback-url/play")!
+            link.queryItems = [.init(name: "url", value: "http://127.0.0.1:8765/languages.mkv"), .init(name: "position", value: "12"), .init(name: "title", value: "S01E02"), .init(name: "x-success", value: "stremio:///detail/\(type)/\(id)/\(video)")]
+            app.launchEnvironment["HARBOR_TEST_STREAM_URL"] = link.url!.absoluteString
+            app.launch()
+            wait("Addon stream starts") { self.seconds(app.staticTexts["playbackClock"]) >= 12 }
+            XCTAssertFalse(app.buttons["previousEpisode"].exists)
+            XCTAssertFalse(app.buttons["nextEpisode"].exists)
+            remote.press(.menu); remote.press(.menu)
+            let callback = app.staticTexts["returnCallback"]
+            wait("Return opens Stremio at the exact addon video") { callback.exists && callback.label.contains("/\(type)/\(id)/\(video)") && callback.label.contains("position=") }
+            if id == "tw:fixture" {
+                XCTAssertTrue(app.staticTexts["stremioSyncFailure"].exists, "A failed save must still be queued for retry")
+            } else {
+                let saved = storedState(id)
+                XCTAssertEqual(saved["video_id"] as? String, video)
+                XCTAssertGreaterThanOrEqual(saved["timeOffset"] as? Int ?? 0, 12_000)
+                XCTAssertGreaterThan(saved["duration"] as? Int ?? 0, 12_000)
+            }
+            app.terminate()
+        }
+    }
+
     private func seconds(_ clock: XCUIElement) -> Int {
         guard clock.exists else { return -1 }
         let values = clock.label.split(separator: ":").compactMap { Int($0) }

@@ -7,6 +7,7 @@ final class PlaybackReturn: ObservableObject {
     @Published var lastCallback: URL?
     @Published private(set) var awaitingDelivery = false
     private var pending: (PlaybackRequest, Double, Bool)?
+    var canReturnWithPendingSync: Bool { pending?.0.hasCustomContentID == true }
     func prepare(_ request: PlaybackRequest, position: Double, loaded: Bool) { pending = (request, position, loaded); awaitingDelivery = loaded }
     func deliverPending() {
         guard let value = pending else { return }; pending = nil; awaitingDelivery = false

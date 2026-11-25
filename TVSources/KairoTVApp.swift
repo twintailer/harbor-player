@@ -64,7 +64,9 @@ import SwiftUI
                     #endif
                 }
                 .fullScreenCover(item: $request, onDismiss: {
-                    if account.syncFailure == nil && !account.hasPendingSync { playbackReturn.deliverPending() }
+                    if playbackReturn.canReturnWithPendingSync || (account.syncFailure == nil && !account.hasPendingSync) {
+                        playbackReturn.deliverPending()
+                    }
                     if let next = pending { pending = nil; request = next }
                 }) { TVPlayerScreen(request: $0).environmentObject(playbackReturn) }
                 .alert("Stream öffnen", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
